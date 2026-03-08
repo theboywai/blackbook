@@ -7,7 +7,7 @@ export async function fetchTransactions({ from, to } = {}) {
       id, txn_date, amount, direction, is_internal_transfer,
       raw_description, upi_merchant_raw, upi_note, upi_handle,
       tx_prefix, ref_number, category_id, categorized_by,
-      merchant_id, account_id, upload_id,
+      merchant_id, account_id, upload_id, balance_after,
       categories ( id, name, parent_id ),
       merchants ( id, display_name )
     `)
@@ -26,7 +26,7 @@ export async function fetchUncategorized() {
     .from('transactions')
     .select(`
       id, txn_date, amount, direction,
-      raw_description, upi_merchant_raw, upi_note, tx_prefix
+      raw_description, upi_merchant_raw, upi_note, upi_handle, tx_prefix
     `)
     .is('category_id', null)
     .eq('is_internal_transfer', false)

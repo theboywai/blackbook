@@ -10,6 +10,7 @@ import Dashboard from '@/pages/Dashboard'
 import Transactions from '@/pages/Transactions'
 import Review from '@/pages/Review'
 import Settings from '@/pages/Settings'
+import Budget from '@/pages/Budget'
 
 function AuthenticatedApp({ onSignOut }) {
   const { txns, loading: txnLoading, refresh } = useTransactions()
@@ -17,20 +18,17 @@ function AuthenticatedApp({ onSignOut }) {
   const [reviewCount, setReviewCount]           = useState(0)
 
   useEffect(() => {
-    if (!txnLoading) {
-      countUncategorized().then(setReviewCount)
-    }
+    if (!txnLoading) countUncategorized().then(setReviewCount)
   }, [txnLoading, txns])
 
   const loading = txnLoading || budgetLoading
-
-  console.log('AuthenticatedApp render:', { txns: txns?.length, budgetMap, loading }) // TEMP
 
   return (
     <Routes>
       <Route element={<Layout onSignOut={onSignOut} reviewCount={reviewCount} />}>
         <Route path="/"             element={<Dashboard    txns={txns} budgetMap={budgetMap} loading={loading} reviewCount={reviewCount} />} />
         <Route path="/transactions" element={<Transactions txns={txns} loading={txnLoading} />} />
+        <Route path="/budget"       element={<Budget       txns={txns} loading={loading} />} />
         <Route path="/review"       element={<Review       onCategorized={refresh} />} />
         <Route path="/settings"     element={<Settings />} />
       </Route>
@@ -41,8 +39,6 @@ function AuthenticatedApp({ onSignOut }) {
 
 export default function App() {
   const { session, signOut, loading } = useAuth()
-
-  console.log('App render:', { session: !!session, loading }) // TEMP
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text2)', letterSpacing: '0.12em' }}>

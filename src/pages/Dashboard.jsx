@@ -11,6 +11,15 @@ import Loader from '@/components/Loader'
 const fmt  = n => '₹' + Math.round(n).toLocaleString('en-IN')
 const sign = n => (n >= 0 ? '+' : '') + fmt(n)
 
+const INFO = {
+  safeToday:    'How much you can spend today without blowing your monthly budget. Calculated as: (total budget remaining this month) ÷ (days left in month).',
+  category:     'Your debit spend this month grouped by parent category. Internal transfers and credits are excluded. Tap a bar to see the breakdown.',
+  weekly:       'Your total spendable spend per week for the last 6 weeks. The brightest bar is the current week. Useful for spotting lifestyle creep.',
+  budget:       'Your monthly budget limits vs actual spend so far. Set in Settings. Warning kicks in at 80%, red at 100%.',
+  insights:     'Auto-generated observations from your transaction patterns — week-over-week changes, top merchant, unusually large transactions, and category skew.',
+  topMerchants: 'The 5 places you spent the most money with this month, ranked by total amount — not frequency. One big purchase counts more than many small ones.',
+}
+
 export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCount }) {
   const data = useDashboard(txns, budgetMap)
 
@@ -34,30 +43,32 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
       {/* Month KPIs */}
       <div style={s.kpiRow}>
         <KPICard label="SPENT"  value={fmt(data.monthSpend)}  color="var(--red)"   sub={`₹${data.dailyAvg}/day avg`} />
-        <KPICard label="INCOME" value={fmt(data.monthIncome)} color="var(--green)" />
-        <KPICard label="NET"    value={sign(data.monthNet)}   color={data.monthNet >= 0 ? 'var(--green)' : 'var(--red)'} />
+        <KPICard label="INCOME" value={fmt(data.monthIncome)} color="var(--green)" sub="credits excl. transfers" />
+        <KPICard label="NET"    value={sign(data.monthNet)}   color={data.monthNet >= 0 ? 'var(--green)' : 'var(--red)'} sub="income minus spend" />
       </div>
 
       {/* Safe to spend today */}
-      <Card>
+      <Card info={INFO.safeToday}>
         <div style={s.safeRow}>
           <div>
             <div style={s.safeLabel}>SAFE TO SPEND TODAY</div>
             <div style={s.safeValue}>{fmt(data.safeToday)}</div>
           </div>
           <div style={s.progressWrap}>
-            <div style={s.progressMeta}>{data.monthProgress.elapsed} of {data.monthProgress.total} days</div>
+            <div style={s.progressMeta}>{data.monthProgress.elapsed} of {data.monthProgress.total} days elapsed</div>
             <div style={s.progressBar}>
               <div style={{ ...s.progressFill, width: `${data.monthProgress.percent}%` }} />
             </div>
-            <div style={s.progressMeta}>Budget: {fmt(data.projection.budget)} · Projected: {fmt(data.projection.projected)}</div>
+            <div style={s.progressMeta}>
+              Budget {fmt(data.projection.budget)} · Projected {fmt(data.projection.projected)}
+            </div>
           </div>
         </div>
       </Card>
 
       {/* Spend by category */}
       {data.categoryChart.length > 0 && (
-        <Card title="SPEND BY CATEGORY">
+        <Card title="SPEND BY CATEGORY" info={INFO.category}>
           <CategoryBarChart data={data.categoryChart} />
           <div style={s.catList}>
             {data.categoryChart.map(cat => (
@@ -79,7 +90,7 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
       )}
 
       {/* Weekly history */}
-      <Card title="WEEKLY SPEND">
+      <Card title="WEEKLY SPEND" info={INFO.weekly}>
         <WeeklyBarChart data={data.weeklyHistory} />
         {data.weekComparison.deltaPercent !== null && (
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: data.weekComparison.direction === 'up' ? 'var(--red)' : 'var(--green)', marginTop: '8px' }}>
@@ -90,7 +101,7 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
 
       {/* Budget progress */}
       {data.budgets.length > 0 && (
-        <Card title="BUDGET">
+        <Card title="BUDGET" info={INFO.budget}>
           <div style={s.budgetList}>
             {data.budgets.map(b => (
               <div key={b.category} style={s.budgetRow}>
@@ -112,7 +123,7 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
 
       {/* Insights */}
       {data.insights.length > 0 && (
-        <Card title="INSIGHTS">
+        <Card title="INSIGHTS" info={INFO.insights}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {data.insights.map((ins, i) => <InsightCard key={i} insight={ins} />)}
           </div>
@@ -121,7 +132,7 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
 
       {/* Top merchants */}
       {data.topMerchants.length > 0 && (
-        <Card title="TOP MERCHANTS">
+        <Card title="TOP MERCHANTS" info={INFO.topMerchants}>
           {data.topMerchants.map((m, i) => (
             <div key={m.name} style={{ ...s.merchantRow, borderBottom: i === data.topMerchants.length - 1 ? 'none' : '1px solid var(--border)' }}>
               <span style={s.merchantRank}>{i + 1}</span>
