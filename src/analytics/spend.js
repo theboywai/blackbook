@@ -20,7 +20,14 @@ export function filterDebits(txns) {
 }
 
 export function filterCredits(txns) {
-  return txns.filter(tx => tx.direction === 'credit' && !tx.is_internal_transfer)
+  return txns.filter(tx => {
+    if (tx.direction !== 'credit') return false
+    if (tx.is_internal_transfer)  return false
+    // Also exclude manually-added transfers categorised as TRANSFER parent
+    const parent = resolveParent(tx)
+    if (parent === 'TRANSFER') return false
+    return true
+  })
 }
 
 /**

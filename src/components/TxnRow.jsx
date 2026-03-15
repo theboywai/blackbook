@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { updateTransactionCategory, updateTransactionLabel, updateTransactionOneTime } from '@/data/transactions'
+import { updateTransactionCategory, updateTransactionLabel, updateTransactionOneTime, deleteTransaction } from '@/data/transactions'
 import { fetchChildCategories } from '@/data/categories'
 
 const fmt = n => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -12,6 +12,8 @@ export default function TxnRow({ tx, last, onUpdated }) {
   const [oneTime, setOneTime]   = useState(tx.is_one_time || false)
   const [saving, setSaving]     = useState(false)
   const [saved, setSaved]       = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
 
   const displayLabel = tx.upi_merchant_raw || tx.upi_note || tx.raw_description?.slice(0, 40) || '—'
   const isCredit     = tx.direction === 'credit'
@@ -57,6 +59,19 @@ export default function TxnRow({ tx, last, onUpdated }) {
     setLabel(tx.upi_merchant_raw || tx.upi_note || '')
     setOneTime(tx.is_one_time || false)
     setExpanded(false)
+  }
+
+  async function handleDelete() {
+    if (!confirmDel) { setConfirmDel(true); return }
+    setDeleting(true)
+    try {
+      await deleteTransaction(tx.id)
+      onUpdated?.()
+    } catch (e) {
+      console.error('Delete failed', e)
+      setDeleting(false)
+      setConfirmDel(false)
+    }
   }
 
   const isDirty =
@@ -126,7 +141,15 @@ export default function TxnRow({ tx, last, onUpdated }) {
           <div style={s.rawDesc}>{tx.raw_description}</div>
 
           <div style={s.actions}>
-            <button style={s.cancelBtn} onClick={handleCancel}>Cancel</button>
+            <button
+              style={{ ...s.deleteBtn, background: confirmDel ? 'var(--red)' : 'none', color: confirmDel ? '#fff' : 'var(--red)', opacity: deleting ? 0.4 : 1 }}
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : confirmDel ? 'Confirm delete' : 'Delete'}
+            </button>
+            <div style={{ flex: 1 }} />
+            <button style={s.cancelBtn} onClick={() => { handleCancel(); setConfirmDel(false) }}>Cancel</button>
             <button
               style={{ ...s.saveBtn, opacity: (!isDirty || saving) ? 0.4 : 1 }}
               onClick={handleSave}

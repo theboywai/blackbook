@@ -75,20 +75,47 @@ export async function updateTransactionOneTime(txId, isOneTime) {
 }
 
 export async function createManualTransaction(tx) {
+  // Fetch latest balance_after for this account to compute new balance
+  const { data: latest } = await supabase
+    .from('transactions')
+    .select('balance_after')
+    .eq('account_id', tx.account_id)
+    .not('balance_after', 'is', null)
+    .order('txn_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  const prevBalance   = latest?.balance_after ? Number(latest.balance_after) : null
+  const balance_after = prevBalance !== null
+    ? (tx.direction === 'credit'
+        ? Math.round((prevBalance + tx.amount) * 100) / 100
+        : Math.round((prevBalance - tx.amount) * 100) / 100)
+    : null
+
   const { error } = await supabase
     .from('transactions')
     .insert({
-      account_id:       tx.account_id,
-      source:           'manual',
-      txn_date:         tx.txn_date,
-      amount:           tx.amount,
-      direction:        tx.direction,
-      raw_description:  tx.raw_description,
-      upi_merchant_raw: tx.upi_merchant_raw || null,
-      category_id:      tx.category_id || null,
-      categorized_by:   tx.category_id ? 'manual' : null,
-      is_internal_transfer: false,
+      account_id:           tx.account_id,
+      source:               'manual',
+      txn_date:             tx.txn_date,
+      amount:               tx.amount,
+      direction:            tx.direction,
+      balance_after:        balance_after,
+      raw_description:      tx.raw_description,
+      upi_merchant_raw:     tx.upi_merchant_raw || null,
+      category_id:          tx.category_id || null,
+      categorized_by:       tx.category_id ? 'manual' : null,
+      is_internal_transfer: tx.is_internal_transfer || false,
     })
+
+  if (error) throw error
+}
+
+export async function deleteTransaction(txId) {
+  const { error } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('id', txId)
 
   if (error) throw error
 }

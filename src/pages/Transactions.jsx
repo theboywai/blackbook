@@ -97,12 +97,16 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
     setSaveErr(null)
     try {
       const name = form.upi_merchant_raw.trim()
+      // Auto-set is_internal_transfer for Self Transfer / Third Party Transfer categories
+      const selectedCat = cats.find(c => String(c.id) === String(form.category_id))
+      const isTransfer  = selectedCat?.name === 'Self Transfer' || selectedCat?.name === 'Third Party Transfer'
       await createManualTransaction({
         ...form,
-        amount:          parseFloat(form.amount),
-        upi_merchant_raw: name || null,
-        raw_description: form.raw_description.trim() || name || 'Manual entry',
-        category_id:     form.category_id || null,
+        amount:               parseFloat(form.amount),
+        upi_merchant_raw:     name || null,
+        raw_description:      form.raw_description.trim() || name || 'Manual entry',
+        category_id:          form.category_id || null,
+        is_internal_transfer: isTransfer,
       })
       setShowAdd(false)
       setForm({ ...EMPTY_FORM, account_id: form.account_id }) // keep last account
@@ -148,7 +152,7 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
               <div style={s.accountRow}>
                 {accounts.map(acc => {
                   const isCash   = acc.bank?.toUpperCase() === 'CASH'
-                  const label    = isCash ? 'CASH' : `${acc.bank?.toUpperCase()} XX${acc.account_no}`
+                  const label    = isCash ? '💵 CASH' : `${acc.bank?.toUpperCase()} XX${acc.account_no}`
                   const selColor = isCash ? 'var(--green)' : 'var(--amber)'
                   const selBg    = isCash ? 'var(--green-bg)' : 'var(--amber-bg)'
                   const isActive = form.account_id === acc.id
