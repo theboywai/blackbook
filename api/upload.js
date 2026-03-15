@@ -122,7 +122,7 @@ OUTPUT: Array only — return ONLY valid JSON array, no markdown, no wrapper obj
   }
 ]`
 
-const PARSER_VERSION    = 'gemini-2.0-flash-001'
+const PARSER_VERSION    = 'gemini-flash-latest-001'
 
 function stripMarkdown(raw) {
   return raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
@@ -264,7 +264,7 @@ module.exports = async function handler(req, res) {
 
   try {
     send('extract', 'running')
-    const model      = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model      = genAI.getGenerativeModel({ model: 'gemini-flash-latest' })
     const extraction = await model.generateContent([
       { text: EXTRACT_PROMPT },
       { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
