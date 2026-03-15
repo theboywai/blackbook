@@ -8,13 +8,11 @@ const {
   extractUPINote, validate, parseMultipart
 } = require('./pipeline-helpers.js')
 
-module.exports.config = { api: { bodyParser: false } }
-
 const EXTRACT_PROMPT    = readFileSync(join(__dirname, 'prompts/extract.txt'), 'utf8')
 const CATEGORIZE_PROMPT = readFileSync(join(__dirname, 'prompts/categorize.txt'), 'utf8')
 const PARSER_VERSION    = 'gemini-2.0-flash-001'
 
-module.exports.default = async function handler(req, res) { 
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   const GEMINI_KEY = process.env.GEMINI_API_KEY
