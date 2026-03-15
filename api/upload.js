@@ -4,8 +4,124 @@ const { createHash }         = require('crypto')
 const { readFileSync }       = require('fs')
 const { join }               = require('path')
 
-const EXTRACT_PROMPT    = readFileSync(join(__dirname, 'prompts/extract.txt'), 'utf8')
-const CATEGORIZE_PROMPT = readFileSync(join(__dirname, 'prompts/categorize.txt'), 'utf8')
+const EXTRACT_PROMPT    = `You are a bank statement parser. Extract every transaction from the attached PDF bank statement into structured JSON.
+
+RULES:
+- Return ONLY valid JSON. No markdown, no explanation, no code fences.
+- Extract ALL transactions exactly as they appear. Do not skip any.
+- Never infer or guess amounts. Copy numbers verbatim.
+- Dates must be in YYYY-MM-DD format.
+- direction must be exactly "debit" or "credit" (lowercase).
+- tx_prefix must be exactly one of: UPI, MB, IMPS, NEFT, NACH, PCD, ZING, OTHER
+  - UPI: starts with UPI/
+  - MB: starts with MB: (Mobile Banking transfers)
+  - IMPS: starts with IMPS/
+  - NEFT: starts with NEFT/
+  - NACH: starts with NACH/ (auto-debits, EMIs)
+  - PCD: Point of sale / card payments
+  - ZING: Kotak ZING internal transfers
+  - OTHER: anything else
+- ref_number: extract the UPI transaction ID, IMPS ref, NEFT ref, or any reference number present. null if none.
+- balance_after: the running balance shown in the "Balance" column after this row. Never null.
+- raw_description: the full description text exactly as printed, no truncation.
+
+OUTPUT FORMAT:
+{
+  "opening_balance": <number>,
+  "closing_balance": <number>,
+  "statement_period": {
+    "from": "YYYY-MM-DD",
+    "to": "YYYY-MM-DD"
+  },
+  "account_number": "<last 4 digits or masked number as shown>",
+  "total_transactions": <number as shown in PDF header or summary>,
+  "transactions": [
+    {
+      "txn_date": "YYYY-MM-DD",
+      "amount": <number, always positive>,
+      "direction": "debit" | "credit",
+      "balance_after": <number>,
+      "raw_description": "<full description, no truncation>",
+      "ref_number": "<ref string or null>",
+      "tx_prefix": "UPI" | "MB" | "IMPS" | "NEFT" | "NACH" | "PCD" | "ZING" | "OTHER"
+    }
+  ]
+}`
+
+const CATEGORIZE_PROMPT = `You are a personal finance categorizer for an Indian user. Categorize each transaction and extract merchant info.
+
+CATEGORY LIST (use these exact names only):
+FOOD        → "Food Delivery", "Grocery & Daily", "Dining & Cafe"
+TRANSPORT   → "Metro", "Cab", "Auto & Rickshaw"
+HOUSING     → "Rent", "Home Supplies"
+HEALTH      → "Pharmacy", "Fitness"
+SHOPPING    → "Clothing", "Electronics", "General Shopping"
+SUBSCRIPTIONS → "Streaming", "SaaS & Apps"
+PEOPLE      → "Split & Settle", "Gift", "Family Support"
+INCOME      → "Salary", "Refund", "Other Income"
+TRANSFER    → "Self Transfer", "Third Party Transfer"
+OTHER       → "Other"
+
+KNOWN MERCHANTS (match these exactly when detected):
+- "SWIGGY" in description                          → merchant: "Swiggy",            category: "Food Delivery"
+- "BLINKIT" or "GROFERS"                           → merchant: "Blinkit",            category: "Grocery & Daily"
+- "UBER" in description or uberindiaapp in handle  → merchant: "Uber",               category: "Cab"
+- "DMRC" or "DELHI METRO"                          → merchant: "Delhi Metro",         category: "Metro"
+- "NMRC" or "NOIDA METRO" or "Noida Metro Rai"    → merchant: "Noida Metro",         category: "Metro"
+- "youtube" or "YOUTUBEGOOGLE" or "google" in desc → merchant: "YouTube / Google",    category: "Streaming"
+- "APPLE MEDIA" or "APPLE.COM"                     → merchant: "Apple",               category: "SaaS & Apps"
+- "AMAZON" or "Amazon Pay"                         → merchant: "Amazon",              category: "General Shopping"
+- "DEVANSHU MADNAN"                                → merchant: "Devanshu Madnan",     category: "Rent"
+- "ACCENT ON HEALT" or "ACCENT ON HEALTH"          → merchant: "Accent on Health",    category: "Dining & Cafe"
+- "WESTSIDE"                                       → merchant: "Westside",            category: "Clothing"
+- "WAKEFIT"                                        → merchant: "Wakefit",             category: "Home Supplies"
+- "SNABBIT"                                        → merchant: "Snabbit",             category: "Home Supplies"
+- "DAS FOOD"                                       → merchant: "Das Food",            category: "Dining & Cafe"
+- "Tata1mg" or "TATA 1MG"                          → merchant: "Tata 1mg",            category: "Pharmacy"
+- "SAUMYA GARG"                                    → merchant: null,                  category: "Split & Settle"
+- "FOOD FORUM"                                     → merchant: "Food Forum",          category: "Dining & Cafe"
+- "MARKET 99"                                      → merchant: "Market 99",           category: "General Shopping"
+- "aditshrm" or "ADITYA SHARMA"                    → merchant: null,                  category: "Split & Settle"
+- "Mamura"                                         → merchant: "Mamura",              category: "Gift"
+
+SPECIAL RULES (apply in this order, first match wins):
+1. ZING prefix → category: "Self Transfer", merchant: null
+2. tx_prefix NEFT or IMPS, direction credit, description contains "AKSHANSH PANDEY" → category: "Self Transfer"
+3. MB: prefix with "RAKESH KUMAR PANDEY" or family name → category: "Family Support"
+4. NACH prefix → check description; usually "Streaming" or "SaaS & Apps"
+5. description contains "REFUND" or note contains "Refund" → category: "Refund"
+6. UPI note (the part after the last /) starts with "CAB" → category: "Cab", merchant: null
+7. UPI note starts with "AUTO" or "Rick" or "Ric" → category: "Auto & Rickshaw", merchant: null
+8. UPI note starts with "FOOD" → category: "Dining & Cafe", merchant: null (unless known merchant)
+9. UPI to individual name (not a known business), amount < ₹500, no clear note → category: "Auto & Rickshaw"
+10. UPI to individual name, amount ₹500–₹5000, no clear note → category: "Split & Settle"
+11. Large NEFT/IMPS credit (>₹5000), direction credit, early in month → category: "Salary"
+12. direction credit and none of the above matched → category: "Other Income"
+
+UPI NOTE EXTRACTION:
+The UPI description format is: UPI/MERCHANT NAME/refno/NOTE
+Extract the NOTE (last segment after final /) — it often contains user-entered tags like:
+FOODoffice, FOODlunch, FOODdinner, CABoffice, CABbuahouse, GiftingWi, FlatRentMarch, milkcharity, etc.
+These notes are highly reliable signals — prioritize them over merchant name guessing.
+
+RULES FOR merchant_display_name:
+- Known businesses: use the clean name from the list above
+- One-off individuals (auto drivers, street vendors, random people): null
+- Friends in splits: null (they're tracked via splits system, not merchant table)
+
+INPUT: Array of transaction objects.
+OUTPUT: Array only — return ONLY valid JSON array, no markdown, no wrapper object.
+
+[
+  {
+    "id": "<same id from input>",
+    "category_name": "<exact category name from list above>",
+    "merchant_display_name": "<clean merchant name or null>",
+    "confidence": "high" | "medium" | "low",
+    "note": "<optional: only include if low confidence, brief reason>"
+  }
+]`
+
 const PARSER_VERSION    = 'gemini-2.0-flash-001'
 
 function stripMarkdown(raw) {
