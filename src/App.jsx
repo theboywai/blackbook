@@ -11,6 +11,7 @@ import Transactions from '@/pages/Transactions'
 import Review from '@/pages/Review'
 import Settings from '@/pages/Settings'
 import Budget from '@/pages/Budget'
+import Upload from '@/pages/Upload'
 
 function AuthenticatedApp({ onSignOut }) {
   const { txns, loading: txnLoading, refresh } = useTransactions()
@@ -27,8 +28,9 @@ function AuthenticatedApp({ onSignOut }) {
     <Routes>
       <Route element={<Layout onSignOut={onSignOut} reviewCount={reviewCount} />}>
         <Route path="/"             element={<Dashboard    txns={txns} budgetMap={budgetMap} loading={loading} reviewCount={reviewCount} />} />
-        <Route path="/transactions" element={<Transactions txns={txns} loading={txnLoading} />} />
+        <Route path="/transactions" element={<Transactions txns={txns} loading={txnLoading} onUpdated={refresh} />} />
         <Route path="/budget"       element={<Budget       txns={txns} loading={loading} />} />
+        <Route path="/upload"       element={<Upload       onUploaded={refresh} />} />
         <Route path="/review"       element={<Review       onCategorized={refresh} />} />
         <Route path="/settings"     element={<Settings />} />
       </Route>

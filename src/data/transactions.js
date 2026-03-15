@@ -73,3 +73,22 @@ export async function updateTransactionOneTime(txId, isOneTime) {
 
   if (error) throw error
 }
+
+export async function createManualTransaction(tx) {
+  const { error } = await supabase
+    .from('transactions')
+    .insert({
+      account_id:       tx.account_id,
+      source:           'manual',
+      txn_date:         tx.txn_date,
+      amount:           tx.amount,
+      direction:        tx.direction,
+      raw_description:  tx.raw_description,
+      upi_merchant_raw: tx.upi_merchant_raw || null,
+      category_id:      tx.category_id || null,
+      categorized_by:   tx.category_id ? 'manual' : null,
+      is_internal_transfer: false,
+    })
+
+  if (error) throw error
+}

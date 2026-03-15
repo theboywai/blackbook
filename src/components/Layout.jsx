@@ -4,12 +4,10 @@ import { useLastUpload } from '@/hooks/useLastUpload'
 
 function useTheme() {
   const [theme, setTheme] = useState(() => localStorage.getItem('bb-theme') || 'dark')
-
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('bb-theme', theme)
   }, [theme])
-
   const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
   return { theme, toggle }
 }
@@ -23,6 +21,7 @@ export default function Layout({ onSignOut, reviewCount }) {
     ['/', 'DASHBOARD'],
     ['/transactions', 'TXN'],
     ['/budget', 'BUDGET'],
+    ['/upload', 'UPLOAD'],
     ['/review', 'REVIEW'],
     ['/settings', 'SETTINGS'],
   ]

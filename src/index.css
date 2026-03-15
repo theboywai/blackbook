@@ -77,3 +77,5 @@ body {
 button { font-family: var(--font-display); cursor: pointer; border: none; outline: none; }
 input, select, textarea { font-family: var(--font-display); outline: none; }
 a { text-decoration: none; color: inherit; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
