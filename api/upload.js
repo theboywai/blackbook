@@ -3,14 +3,114 @@ const { createClient }       = require('@supabase/supabase-js')
 const { createHash }         = require('crypto')
 const { readFileSync }       = require('fs')
 const { join }               = require('path')
-const {
-  stripMarkdown, extractUPIHandle, extractUPIMerchantRaw,
-  extractUPINote, validate, parseMultipart
-} = require('./pipeline-helpers.js')
 
 const EXTRACT_PROMPT    = readFileSync(join(__dirname, 'prompts/extract.txt'), 'utf8')
 const CATEGORIZE_PROMPT = readFileSync(join(__dirname, 'prompts/categorize.txt'), 'utf8')
 const PARSER_VERSION    = 'gemini-2.0-flash-001'
+
+function stripMarkdown(raw) {
+  return raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
+}
+
+function extractUPIHandle(desc) {
+  if (!desc) return null
+  for (const seg of desc.split('/')) {
+    if (seg.includes('@') && !seg.includes(' ')) return seg.toLowerCase().trim()
+  }
+  return null
+}
+
+function extractUPIMerchantRaw(desc) {
+  if (!desc) return null
+  const m = desc.match(/^UPI\/([^/]+)\//)
+  return m ? m[1].trim() : null
+}
+
+function extractUPINote(desc) {
+  if (!desc || !desc.startsWith('UPI/')) return null
+  const parts = desc.split('/')
+  return parts[parts.length - 1].trim() || null
+}
+
+function validate(extracted) {
+  const errors = [], warnings = []
+  const { opening_balance, closing_balance, total_transactions, transactions } = extracted
+  if (opening_balance == null) errors.push('MISSING: opening_balance')
+  if (closing_balance == null) errors.push('MISSING: closing_balance')
+  if (!Array.isArray(transactions) || transactions.length === 0)
+    return { valid: false, errors: [...errors, 'MISSING: transactions'], warnings, summary: {} }
+  if (total_transactions != null && transactions.length !== total_transactions)
+    errors.push(`ROW COUNT MISMATCH: expected ${total_transactions}, got ${transactions.length}`)
+  const seen = new Map()
+  let credits = 0, debits = 0
+  transactions.forEach((tx, i) => {
+    const loc = `Row ${i + 1}`
+    if (tx.amount == null)        errors.push(`${loc}: amount null`)
+    if (!tx.txn_date)             errors.push(`${loc}: txn_date null`)
+    if (!tx.direction)            errors.push(`${loc}: direction null`)
+    if (tx.balance_after == null) errors.push(`${loc}: balance_after null`)
+    if (tx.direction === 'credit') credits += tx.amount || 0
+    if (tx.direction === 'debit')  debits  += tx.amount || 0
+    if ((tx.amount || 0) > 50000) warnings.push(`${loc}: large ₹${tx.amount}`)
+    const key = `${tx.txn_date}|${tx.amount}|${tx.direction}`
+    if (seen.has(key)) warnings.push(`${loc}: possible duplicate with Row ${seen.get(key) + 1}`)
+    else seen.set(key, i)
+  })
+  if (opening_balance != null && closing_balance != null && errors.length === 0) {
+    const expected = Math.round((opening_balance + credits - debits) * 100) / 100
+    const diff = Math.abs(expected - closing_balance)
+    if (diff > 1.0) errors.push(`BALANCE MISMATCH: computed ${expected}, stated ${closing_balance}`)
+  }
+  return {
+    valid: errors.length === 0, errors, warnings,
+    summary: {
+      row_count:        transactions.length,
+      total_credits:    Math.round(credits * 100) / 100,
+      total_debits:     Math.round(debits  * 100) / 100,
+      computed_closing: Math.round(((opening_balance || 0) + credits - debits) * 100) / 100,
+      stated_closing:   closing_balance,
+    }
+  }
+}
+
+async function parseMultipart(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on('data', chunk => chunks.push(chunk))
+    req.on('end', () => {
+      try {
+        const body     = Buffer.concat(chunks)
+        const ct       = req.headers['content-type'] || ''
+        const boundary = ct.split('boundary=')[1]?.trim()
+        if (!boundary) return reject(new Error('No boundary in content-type'))
+        const sep   = Buffer.from(`--${boundary}`)
+        const parts = []
+        let start   = 0
+        while (true) {
+          const idx = body.indexOf(sep, start)
+          if (idx === -1) break
+          if (start > 0) parts.push(body.slice(start, idx - 2))
+          start = idx + sep.length + 2
+        }
+        const fields = {}, files = {}
+        for (const part of parts) {
+          const headerEnd = part.indexOf(Buffer.from('\r\n\r\n'))
+          if (headerEnd === -1) continue
+          const headerStr = part.slice(0, headerEnd).toString()
+          const content   = part.slice(headerEnd + 4)
+          const nameMatch = headerStr.match(/name="([^"]+)"/)
+          if (!nameMatch) continue
+          const name      = nameMatch[1]
+          const fileMatch = headerStr.match(/filename="([^"]+)"/)
+          if (fileMatch) files[name]  = { buffer: content, filename: fileMatch[1] }
+          else           fields[name] = content.toString().trim()
+        }
+        resolve({ fields, files })
+      } catch (e) { reject(e) }
+    })
+    req.on('error', reject)
+  })
+}
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -47,7 +147,6 @@ module.exports = async function handler(req, res) {
     res.write(`data: ${JSON.stringify({ step, status, ...data })}\n\n`)
 
   try {
-    // Step 1 — Extract
     send('extract', 'running')
     const model      = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
     const extraction = await model.generateContent([
@@ -63,7 +162,6 @@ module.exports = async function handler(req, res) {
     }
     send('extract', 'done', { count: extracted.transactions?.length })
 
-    // Step 2 — Validate
     send('validate', 'running')
     const validation = validate(extracted)
     if (!validation.valid) {
@@ -72,7 +170,6 @@ module.exports = async function handler(req, res) {
     }
     send('validate', 'done', { summary: validation.summary, warnings: validation.warnings })
 
-    // Step 3 — Categorize
     send('categorize', 'running')
     const catInput = extracted.transactions.map((tx, i) => ({
       id:               String(i),
@@ -96,7 +193,6 @@ module.exports = async function handler(req, res) {
     }
     send('categorize', 'done', { count: categories.length })
 
-    // Step 4 — Insert
     send('insert', 'running')
 
     const { data: existing } = await supabase
@@ -165,7 +261,7 @@ module.exports = async function handler(req, res) {
 
       let merchantId = null, categoryId = null, categorizedBy = null
       if (isInternal) {
-        categoryId = categoryMap['self transfer'] || null
+        categoryId    = categoryMap['self transfer'] || null
         categorizedBy = 'rule'
       } else {
         if (upiHandle && merchantByHandle[upiHandle]) {
