@@ -4,7 +4,9 @@ import { useDashboard } from '@/hooks/useDashboard'
 import { CATEGORY_COLORS } from '@/constants/categories'
 import KPICard from '@/components/KPICard'
 import Card from '@/components/Card'
-import { CategoryBarChart, WeeklyBarChart } from '@/components/SpendChart'
+import { CategoryBarChart, WeeklyBarChart, CorpusChart } from '@/components/SpendChart'
+import { corpusTimeline } from '@/analytics/corpus'
+import { useMemo } from 'react'
 import InsightCard from '@/components/InsightCard'
 import TxnRow from '@/components/TxnRow'
 import Loader from '@/components/Loader'
@@ -44,6 +46,11 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
           <OneTimeToggle value={includeOneTime} onChange={setIncludeOneTime} />
         </div>
       </div>
+
+      {/* Corpus timeline */}
+      <Card title="NET WORTH" info="Your total cash across all accounts over time. Each point is end-of-day balance. Green = up from first data point, red = down.">
+        <CorpusChart data={corpusTimeline(txns)} />
+      </Card>
 
       {/* Month KPIs */}
       <div style={s.kpiRow}>
