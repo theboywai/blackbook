@@ -55,3 +55,21 @@ export async function fetchClosingBalances() {
   }
   return map
 }
+
+export async function createAccount({ name, bank, account_no, type, holder_name }) {
+  const { data, error } = await supabase
+    .from('accounts')
+    .insert({
+      name,
+      bank:         bank.toUpperCase(),
+      account_no,
+      type,
+      holder_name:  holder_name.toUpperCase(),
+      is_own:       true,
+      upi_handles:  [],
+    })
+    .select().single()
+
+  if (error) throw error
+  return data
+}

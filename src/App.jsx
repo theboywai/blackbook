@@ -1,28 +1,47 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from '@/hooks/useAuth'
+import { useAuth }         from '@/hooks/useAuth'
 import { useTransactions } from '@/hooks/useTransactions'
-import { useBudgets } from '@/hooks/useBudgets'
+import { useBudgets }      from '@/hooks/useBudgets'
+import { fetchOwnAccounts } from '@/data/accounts'
 import { countUncategorized } from '@/data/transactions'
 import { useState, useEffect } from 'react'
-import Layout from '@/components/Layout'
-import Login from '@/pages/Login'
-import Dashboard from '@/pages/Dashboard'
+import Layout      from '@/components/Layout'
+import Login       from '@/pages/Login'
+import Setup       from '@/pages/Setup'
+import Dashboard   from '@/pages/Dashboard'
 import Transactions from '@/pages/Transactions'
-import Review from '@/pages/Review'
-import Settings from '@/pages/Settings'
-import Budget from '@/pages/Budget'
-import Upload from '@/pages/Upload'
+import Review      from '@/pages/Review'
+import Settings    from '@/pages/Settings'
+import Budget      from '@/pages/Budget'
+import Upload      from '@/pages/Upload'
+import Loader      from '@/components/Loader'
 
 function AuthenticatedApp({ onSignOut }) {
   const { txns, loading: txnLoading, refresh } = useTransactions()
   const { budgetMap, loading: budgetLoading }   = useBudgets()
   const [reviewCount, setReviewCount]           = useState(0)
+  const [hasAccounts, setHasAccounts]           = useState(null) // null = loading
+
+  // Check if user has any accounts set up
+  useEffect(() => {
+    fetchOwnAccounts()
+      .then(accs => setHasAccounts(accs.length > 0))
+      .catch(() => setHasAccounts(false))
+  }, [])
 
   useEffect(() => {
     if (!txnLoading) countUncategorized().then(setReviewCount)
   }, [txnLoading, txns])
 
   const loading = txnLoading || budgetLoading
+
+  // Still checking accounts
+  if (hasAccounts === null) return <Loader />
+
+  // First-run: no accounts yet
+  if (!hasAccounts) {
+    return <Setup onComplete={() => setHasAccounts(true)} />
+  }
 
   return (
     <Routes>

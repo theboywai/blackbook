@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { fetchOwnAccounts } from '@/data/accounts'
+import { supabase } from '@/lib/supabase'
 import { useEffect } from 'react'
 import Card from '@/components/Card'
 
@@ -40,12 +41,18 @@ export default function Upload({ onUploaded }) {
     setResult(null)
     setError(null)
 
+    const { data: { session } } = await supabase.auth.getSession()
+    
     const formData = new FormData()
     formData.append('pdf', file)
     formData.append('account_id', accountId)
 
     try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+        body: formData
+      })
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
