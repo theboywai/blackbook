@@ -6,7 +6,7 @@
     { "source": "/(.*)",     "destination": "/index.html" }
   ],
   "functions": {
-    "api/upload.mjs": {
+    "api/upload.js": {
       "maxDuration": 60
     }
   }

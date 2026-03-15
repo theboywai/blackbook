@@ -1,22 +1,20 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
-import { createClient }       from '@supabase/supabase-js'
-import { createHash }         from 'crypto'
-import { readFileSync }       from 'fs'
-import { join, dirname }      from 'path'
-import { fileURLToPath }      from 'url'
-import {
+const { GoogleGenerativeAI } = require('@google/generative-ai')
+const { createClient }       = require('@supabase/supabase-js')
+const { createHash }         = require('crypto')
+const { readFileSync }       = require('fs')
+const { join }               = require('path')
+const {
   stripMarkdown, extractUPIHandle, extractUPIMerchantRaw,
   extractUPINote, validate, parseMultipart
-} from './pipeline-helpers.mjs'
+} = require('./pipeline-helpers.js')
 
-export const config = { api: { bodyParser: false } }
+module.exports.config = { api: { bodyParser: false } }
 
-const __dirname         = dirname(fileURLToPath(import.meta.url))
 const EXTRACT_PROMPT    = readFileSync(join(__dirname, 'prompts/extract.txt'), 'utf8')
 const CATEGORIZE_PROMPT = readFileSync(join(__dirname, 'prompts/categorize.txt'), 'utf8')
 const PARSER_VERSION    = 'gemini-2.0-flash-001'
 
-export default async function handler(req, res) {
+module.exports.default = async function handler(req, res) { 
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   const GEMINI_KEY = process.env.GEMINI_API_KEY

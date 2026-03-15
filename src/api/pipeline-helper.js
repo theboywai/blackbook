@@ -1,8 +1,8 @@
-export function stripMarkdown(raw) {
+function stripMarkdown(raw) {
   return raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
 }
 
-export function extractUPIHandle(desc) {
+function extractUPIHandle(desc) {
   if (!desc) return null
   for (const seg of desc.split('/')) {
     if (seg.includes('@') && !seg.includes(' ')) return seg.toLowerCase().trim()
@@ -10,19 +10,19 @@ export function extractUPIHandle(desc) {
   return null
 }
 
-export function extractUPIMerchantRaw(desc) {
+function extractUPIMerchantRaw(desc) {
   if (!desc) return null
   const m = desc.match(/^UPI\/([^/]+)\//)
   return m ? m[1].trim() : null
 }
 
-export function extractUPINote(desc) {
+function extractUPINote(desc) {
   if (!desc || !desc.startsWith('UPI/')) return null
   const parts = desc.split('/')
   return parts[parts.length - 1].trim() || null
 }
 
-export function validate(extracted) {
+function validate(extracted) {
   const errors = [], warnings = []
   const { opening_balance, closing_balance, total_transactions, transactions } = extracted
   if (opening_balance == null) errors.push('MISSING: opening_balance')
@@ -100,4 +100,9 @@ export async function parseMultipart(req) {
     })
     req.on('error', reject)
   })
+}
+
+module.exports = {
+  stripMarkdown, extractUPIHandle, extractUPIMerchantRaw,
+  extractUPINote, validate, parseMultipart
 }
