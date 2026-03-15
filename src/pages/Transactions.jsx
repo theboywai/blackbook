@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { filterByDateRange } from '@/analytics/spend'
+import { resolveParent } from '@/analytics/spend'
 import Card from '@/components/Card'
 import TxnRow from '@/components/TxnRow'
 import Loader from '@/components/Loader'
@@ -11,27 +11,74 @@ export default function Transactions({ txns = [], loading }) {
   const [direction, setDir] = useState('all')
   const [catFilter, setCat] = useState('all')
 
-  const childCats = useMemo(() => {
-    const map = {}
-    txns.forEach(tx => { if (tx.categories) map[tx.category_id] = tx.categories.name })
-    return Object.entries(map).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  // Build grouped category structure from actual txns
+  // { parentName: [{ id, name }] }
+  const categoryGroups = useMemo(() => {
+    const parents = {}   // parentName → Set of child { id, name }
+
+    txns.forEach(tx => {
+      if (!tx.categories) return
+      const cat    = tx.categories
+      const parent = resolveParent(tx) || 'OTHER'
+
+      if (!parents[parent]) parents[parent] = new Map()
+
+      // Always add the actual category as a child entry
+      parents[parent].set(String(tx.category_id), cat.name)
+    })
+
+    // Sort parents alphabetically, children alphabetically within
+    return Object.entries(parents)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([parent, childMap]) => ({
+        parent,
+        children: [...childMap.entries()]
+          .map(([id, name]) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }))
   }, [txns])
 
-  const filtered = useMemo(() => txns.filter(tx => {
-    if (direction !== 'all' && tx.direction !== direction) return false
-    if (catFilter === 'uncategorized' && tx.category_id) return false
-    if (catFilter !== 'all' && catFilter !== 'uncategorized' && String(tx.category_id) !== catFilter) return false
-    if (search) {
-      const q = search.toLowerCase()
-      const label = (tx.upi_note || tx.upi_merchant_raw || tx.raw_description || '').toLowerCase()
-      if (!label.includes(q)) return false
+  // Set of all child category IDs under the selected parent
+  const selectedParentChildIds = useMemo(() => {
+    if (catFilter === 'all' || catFilter === 'uncategorized') return null
+    // Check if it's a parent-level filter (prefixed with "parent:")
+    if (catFilter.startsWith('parent:')) {
+      const parentName = catFilter.replace('parent:', '')
+      const group = categoryGroups.find(g => g.parent === parentName)
+      return group ? new Set(group.children.map(c => c.id)) : null
     }
-    return true
-  }), [txns, direction, catFilter, search])
+    return null // it's a specific child id
+  }, [catFilter, categoryGroups])
 
-  const total = useMemo(() =>
-    filtered.reduce((s, tx) => tx.direction === 'debit' ? s - Number(tx.amount) : s + Number(tx.amount), 0)
-  , [filtered])
+  const filtered = useMemo(() => {
+    return txns.filter(tx => {
+      if (direction !== 'all' && tx.direction !== direction) return false
+
+      if (catFilter === 'uncategorized') {
+        if (tx.category_id) return false
+      } else if (catFilter !== 'all') {
+        if (catFilter.startsWith('parent:')) {
+          // Parent selected — match any child under it
+          if (!selectedParentChildIds?.has(String(tx.category_id))) return false
+        } else {
+          // Specific child selected
+          if (String(tx.category_id) !== catFilter) return false
+        }
+      }
+
+      if (search) {
+        const q     = search.toLowerCase()
+        const label = (tx.upi_note || tx.upi_merchant_raw || tx.raw_description || '').toLowerCase()
+        if (!label.includes(q)) return false
+      }
+
+      return true
+    })
+  }, [txns, direction, catFilter, search, selectedParentChildIds])
+
+  const total = useMemo(() => filtered.reduce((s, tx) =>
+    tx.direction === 'debit' ? s - Number(tx.amount) : s + Number(tx.amount), 0
+  ), [filtered])
 
   if (loading) return <Loader />
 
@@ -45,7 +92,12 @@ export default function Transactions({ txns = [], loading }) {
       </div>
 
       <div style={s.filters}>
-        <input style={s.search} placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input
+          style={s.search}
+          placeholder="Search..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
         <select style={s.select} value={direction} onChange={e => setDir(e.target.value)}>
           <option value="all">All</option>
           <option value="debit">Debits</option>
@@ -54,7 +106,16 @@ export default function Transactions({ txns = [], loading }) {
         <select style={s.select} value={catFilter} onChange={e => setCat(e.target.value)}>
           <option value="all">All categories</option>
           <option value="uncategorized">Uncategorized</option>
-          {childCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {categoryGroups.map(({ parent, children }) => (
+            <optgroup key={parent} label={parent}>
+              {/* Parent option — selects all children */}
+              <option value={`parent:${parent}`}>All {parent}</option>
+              {/* Individual children */}
+              {children.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </optgroup>
+          ))}
         </select>
       </div>
 

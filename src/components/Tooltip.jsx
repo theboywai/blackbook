@@ -1,12 +1,32 @@
 import { useState, useRef, useEffect } from 'react'
 
-/**
- * Info tooltip — click ⓘ to toggle, click outside to close.
- * Usage: <Tooltip text="This card shows..." />
- */
 export default function Tooltip({ text }) {
   const [open, setOpen] = useState(false)
   const ref             = useRef(null)
+  const btnRef          = useRef(null)
+  const [boxStyle, setBoxStyle] = useState({})
+
+  // Reposition box so it never clips off left/right edge of screen
+  useEffect(() => {
+    if (!open || !btnRef.current) return
+    const rect      = btnRef.current.getBoundingClientRect()
+    const boxWidth  = 240
+    const padding   = 12
+    const viewWidth = window.innerWidth
+
+    // Default: align right edge of box to button
+    let right = 0
+    let left  = 'auto'
+
+    // If box would clip left edge — flip to align left edge to button
+    const boxLeft = rect.right - boxWidth
+    if (boxLeft < padding) {
+      right = 'auto'
+      left  = Math.max(0, -(rect.left - padding)) + 'px'
+    }
+
+    setBoxStyle({ right, left })
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -20,15 +40,14 @@ export default function Tooltip({ text }) {
   return (
     <div ref={ref} style={s.wrap}>
       <button
+        ref={btnRef}
         style={{ ...s.btn, color: open ? 'var(--amber)' : 'var(--text3)' }}
         onClick={() => setOpen(o => !o)}
-        title="What is this?"
       >
         ⓘ
       </button>
       {open && (
-        <div style={s.box}>
-          <div style={s.arrow} />
+        <div style={{ ...s.box, ...boxStyle }}>
           <p style={s.text}>{text}</p>
         </div>
       )}
@@ -37,9 +56,8 @@ export default function Tooltip({ text }) {
 }
 
 const s = {
-  wrap:  { position: 'relative', display: 'inline-flex', alignItems: 'center' },
-  btn:   { background: 'none', fontSize: '13px', lineHeight: 1, padding: '2px 4px', transition: 'color 0.15s', cursor: 'pointer' },
-  box:   { position: 'absolute', top: '24px', right: 0, zIndex: 200, width: '240px', background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', padding: '12px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' },
-  arrow: { position: 'absolute', top: '-5px', right: '10px', width: '8px', height: '8px', background: 'var(--bg3)', border: '1px solid var(--border2)', borderBottom: 'none', borderRight: 'none', transform: 'rotate(45deg)' },
-  text:  { fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text2)', lineHeight: 1.6, letterSpacing: '0.02em' },
+  wrap: { position: 'relative', display: 'inline-flex', alignItems: 'center' },
+  btn:  { background: 'none', fontSize: '13px', lineHeight: 1, padding: '2px 4px', transition: 'color 0.15s', cursor: 'pointer' },
+  box:  { position: 'absolute', top: '26px', zIndex: 300, width: '240px', background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', padding: '12px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
+  text: { fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text2)', lineHeight: 1.6, letterSpacing: '0.02em' },
 }

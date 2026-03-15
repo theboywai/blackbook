@@ -1,6 +1,9 @@
+import { useState, useMemo } from 'react'
 import { useCorpus } from '@/hooks/useCorpus'
 import { useBudgets } from '@/hooks/useBudgets'
 import { budgetProgress, projectedMonthlySpend, safeToSpendToday, monthProgress } from '@/analytics/budget'
+import { filterByDateRange } from '@/analytics/spend'
+import { getMonthRange } from '@/analytics/trends'
 import { useLastUpload } from '@/hooks/useLastUpload'
 import { CATEGORY_COLORS, CATEGORY_ICONS } from '@/constants/categories'
 import Card from '@/components/Card'
@@ -15,18 +18,18 @@ const BANK_COLORS = {
 }
 
 const INFO = {
-  corpus:    'Your total known cash across both accounts — sum of the closing balances from your most recent upload for each account. Updates every time you run an upload.',
-  account:   'Per-account breakdown: closing balance (last upload), income received this month, and spend debited from this account.',
-  mtd:       'Month-to-date totals across both accounts combined. Income = credits excluding transfers. Spent = debits excluding transfers.',
-  budget:    'Your monthly budget limits vs actual spend so far. Tap any category in Settings to change the limit. Warning at 80%, red at 100%.',
-  safe:      'How much you can spend today and still finish the month within budget. Formula: (total budget remaining) ÷ (days left in month).',
-  projected: 'If you keep spending at your current daily rate, this is what your month-end total will be. Compared against your total monthly budget.',
+  corpus:  'Your total known cash across both accounts — sum of the closing balances from your most recent upload for each account.',
+  account: 'Per-account breakdown: closing balance (last upload), income received this month, and spend debited from this account.',
+  mtd:     'Month-to-date totals across both accounts combined. Income = credits excluding transfers. Spent = debits excluding transfers.',
+  budget:  'Your monthly budget limits vs actual spend so far. Tap any row to see individual transactions. Warning at 80%, red at 100%.',
+  safe:    'How much you can spend today and still finish the month within budget. Formula: (total budget remaining) ÷ (days left in month).',
 }
 
 export default function Budget({ txns = [], loading: txnLoading }) {
   const { data: corpus, loading: corpusLoading } = useCorpus(txns)
-  const { budgets, budgetMap, loading: budgetLoading } = useBudgets()
-  const { label: syncLabel, urgency } = useLastUpload()
+  const { budgetMap, loading: budgetLoading }    = useBudgets()
+  const { label: syncLabel, urgency }            = useLastUpload()
+  const [expandedCat, setExpandedCat]            = useState(null)
 
   const loading = txnLoading || corpusLoading || budgetLoading
 
@@ -34,6 +37,21 @@ export default function Budget({ txns = [], loading: txnLoading }) {
   const budgetRows = Object.keys(budgetMap).length ? budgetProgress(txns, budgetMap) : []
   const projection = Object.keys(budgetMap).length ? projectedMonthlySpend(txns, budgetMap) : null
   const safeToday  = Object.keys(budgetMap).length ? safeToSpendToday(txns, budgetMap) : null
+
+  // Transactions for the expanded category, current month
+  const expandedTxns = useMemo(() => {
+    if (!expandedCat) return []
+    const curr      = getMonthRange(0)
+    const monthTxns = filterByDateRange(txns, curr.from, curr.to)
+    return monthTxns.filter(tx => {
+      if (tx.direction !== 'debit' || tx.is_internal_transfer) return false
+      const cat    = tx.categories
+      const parent = cat
+        ? (cat.parent_id == null ? cat.name : cat.parent?.name || 'OTHER')
+        : 'OTHER'
+      return parent.toUpperCase() === expandedCat.toUpperCase()
+    }).sort((a, b) => b.amount - a.amount)
+  }, [expandedCat, txns])
 
   const urgencyColor = { ok: 'var(--green)', warning: 'var(--amber)', overdue: 'var(--red)' }
 
@@ -50,7 +68,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         </div>
         {syncLabel && (
           <div style={{ ...s.syncBadge, color: urgencyColor[urgency] || 'var(--text3)' }}>
-            SYNCED {syncLabel.toUpperCase()}
+            {urgency === 'ok' ? `SYNCED ${syncLabel.toUpperCase()}` : urgency === 'warning' ? 'UPLOAD SOON' : 'UPLOAD NOW'}
           </div>
         )}
       </div>
@@ -60,17 +78,13 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         <div style={s.corpusRow}>
           <div>
             <div style={s.corpusLabel}>TOTAL CORPUS</div>
-            <div style={s.corpusValue}>
-              {corpus ? fmt(corpus.corpus) : '—'}
-            </div>
+            <div style={s.corpusValue}>{corpus ? fmt(corpus.corpus) : '—'}</div>
             <div style={s.corpusSub}>cash across all accounts</div>
           </div>
           {corpus && (
             <div style={s.corpusBars}>
               {corpus.summaries.map(s2 => {
-                const pct = corpus.corpus > 0
-                  ? Math.round((s2.closingBalance || 0) / corpus.corpus * 100)
-                  : 0
+                const pct  = corpus.corpus > 0 ? Math.round((s2.closingBalance || 0) / corpus.corpus * 100) : 0
                 const bank = s2.account.bank?.toUpperCase()
                 return (
                   <div key={s2.account.id} style={cs.barRow}>
@@ -104,36 +118,23 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                       <div style={s.accountNo}>XX{s2.account.account_no}</div>
                     </div>
                   </div>
-
-                  <div style={s.accountBalance}>
-                    {hasData ? fmt(s2.closingBalance) : '—'}
-                  </div>
+                  <div style={s.accountBalance}>{hasData ? fmt(s2.closingBalance) : '—'}</div>
                   <div style={s.accountBalanceLabel}>CLOSING BALANCE</div>
-
                   <div style={s.accountStats}>
                     <div style={s.accountStat}>
-                      <div style={{ ...s.accountStatVal, color: 'var(--green)' }}>
-                        {s2.income > 0 ? fmt(s2.income) : '—'}
-                      </div>
+                      <div style={{ ...s.accountStatVal, color: 'var(--green)' }}>{s2.income > 0 ? fmt(s2.income) : '—'}</div>
                       <div style={s.accountStatLabel}>INCOME MTD</div>
                     </div>
                     <div style={s.accountStat}>
-                      <div style={{ ...s.accountStatVal, color: 'var(--red)' }}>
-                        {s2.spent > 0 ? fmt(s2.spent) : '—'}
-                      </div>
+                      <div style={{ ...s.accountStatVal, color: 'var(--red)' }}>{s2.spent > 0 ? fmt(s2.spent) : '—'}</div>
                       <div style={s.accountStatLabel}>SPENT MTD</div>
                     </div>
                     <div style={s.accountStat}>
-                      <div style={{ ...s.accountStatVal, color: s2.net >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                        {sign(s2.net)}
-                      </div>
+                      <div style={{ ...s.accountStatVal, color: s2.net >= 0 ? 'var(--green)' : 'var(--red)' }}>{sign(s2.net)}</div>
                       <div style={s.accountStatLabel}>NET MTD</div>
                     </div>
                   </div>
-
-                  {!hasData && (
-                    <div style={s.noUpload}>No upload yet</div>
-                  )}
+                  {!hasData && <div style={s.noUpload}>No upload yet</div>}
                 </div>
               )
             })}
@@ -141,24 +142,18 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         </Card>
       )}
 
-      {/* Combined MTD */}
+      {/* MTD combined */}
       {corpus && (
         <Card title="MONTH TO DATE · ALL ACCOUNTS" info={INFO.mtd}>
           <div style={s.mtdRow}>
-            <MTDStat label="INCOME"  value={fmt(corpus.mtd.income)} color="var(--green)" />
+            <MTDStat label="INCOME" value={fmt(corpus.mtd.income)} color="var(--green)" />
             <div style={s.divider} />
-            <MTDStat label="SPENT"   value={fmt(corpus.mtd.spent)}  color="var(--red)" />
+            <MTDStat label="SPENT"  value={fmt(corpus.mtd.spent)}  color="var(--red)" />
             <div style={s.divider} />
-            <MTDStat label="NET"     value={sign(corpus.mtd.net)}   color={corpus.mtd.net >= 0 ? 'var(--green)' : 'var(--red)'} />
+            <MTDStat label="NET"    value={sign(corpus.mtd.net)}   color={corpus.mtd.net >= 0 ? 'var(--green)' : 'var(--red)'} />
           </div>
-          <div style={s.progressSection}>
-            <div style={s.progressMeta}>
-              Day {progress.elapsed} of {progress.total} · {progress.remaining} days remaining
-            </div>
-            <div style={s.progressBar}>
-              <div style={{ ...s.progressFill, width: `${progress.percent}%` }} />
-            </div>
-          </div>
+          <div style={s.progressMeta}>Day {progress.elapsed} of {progress.total} · {progress.remaining} days remaining</div>
+          <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${progress.percent}%` }} /></div>
         </Card>
       )}
 
@@ -177,10 +172,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                 {fmt(projection.projected)}
               </div>
               <div style={{ ...s.projDelta, color: projection.willExceedBy > 0 ? 'var(--red)' : 'var(--green)' }}>
-                {projection.willExceedBy > 0
-                  ? `${fmt(projection.willExceedBy)} over budget`
-                  : `${fmt(Math.abs(projection.willExceedBy))} under budget`
-                }
+                {projection.willExceedBy > 0 ? `${fmt(projection.willExceedBy)} over` : `${fmt(Math.abs(projection.willExceedBy))} under`} budget
               </div>
               <div style={s.projSub}>vs {fmt(projection.budget)} total budget</div>
             </div>
@@ -188,36 +180,75 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         </Card>
       )}
 
-      {/* Budget vs actual */}
+      {/* Budget vs actual — expandable rows */}
       {budgetRows.length > 0 && (
         <Card title="BUDGET VS ACTUAL" info={INFO.budget}>
           <div style={s.budgetList}>
             {budgetRows.map(b => {
-              const color = b.status === 'over' ? 'var(--red)' : b.status === 'warning' ? 'var(--amber)' : 'var(--green)'
-              const icon  = CATEGORY_ICONS[b.category] || '•'
+              const color    = b.status === 'over' ? 'var(--red)' : b.status === 'warning' ? 'var(--amber)' : 'var(--green)'
+              const icon     = CATEGORY_ICONS[b.category] || '•'
+              const isOpen   = expandedCat === b.category
+              const isOther  = b.category === 'OTHER'
+
               return (
-                <div key={b.category} style={s.budgetRow}>
-                  <div style={s.budgetLeft}>
-                    <span style={s.budgetIcon}>{icon}</span>
-                    <span style={s.budgetCat}>{b.category}</span>
-                    {b.status !== 'ok' && (
-                      <span style={{ ...s.budgetTag, color, borderColor: color + '44', background: color + '11' }}>
-                        {b.status === 'over' ? 'OVER' : 'WARN'}
-                      </span>
-                    )}
-                  </div>
-                  <div style={s.budgetRight}>
+                <div key={b.category}>
+                  {/* Row header — always clickable */}
+                  <button
+                    style={{ ...s.budgetRow, background: isOpen ? 'var(--bg3)' : 'transparent' }}
+                    onClick={() => setExpandedCat(isOpen ? null : b.category)}
+                  >
+                    <div style={s.budgetTop}>
+                      <div style={s.budgetLeft}>
+                        <span style={s.budgetIcon}>{icon}</span>
+                        <span style={s.budgetCat}>{b.category}</span>
+                        {b.status !== 'ok' && (
+                          <span style={{ ...s.budgetTag, color, borderColor: color + '44', background: color + '11' }}>
+                            {b.status === 'over' ? 'OVER' : 'WARN'}
+                          </span>
+                        )}
+                        {isOther && (
+                          <span style={s.drillHint}>tap to see</span>
+                        )}
+                      </div>
+                      <div style={s.budgetRight}>
+                        <span style={s.budgetNums}>
+                          {fmt(b.spent)}<span style={{ color: 'var(--text3)' }}> / {fmt(b.budget)}</span>
+                        </span>
+                        <span style={{ ...s.budgetPct, color }}>{b.percentUsed}%</span>
+                        <span style={{ ...s.chevron, color: 'var(--text3)', transform: isOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
+                      </div>
+                    </div>
                     <div style={s.budgetBarWrap}>
                       <div style={{ ...s.budgetBarFill, width: `${Math.min(b.percentUsed, 100)}%`, background: color }} />
                     </div>
-                    <span style={s.budgetNums}>
-                      {fmt(b.spent)}
-                      <span style={{ color: 'var(--text3)' }}> / {fmt(b.budget)}</span>
-                    </span>
-                    <span style={{ ...s.budgetPct, color }}>
-                      {b.percentUsed}%
-                    </span>
-                  </div>
+                  </button>
+
+                  {/* Expanded transaction list */}
+                  {isOpen && (
+                    <div style={s.expandedBox}>
+                      {expandedTxns.length === 0 ? (
+                        <div style={s.emptyRow}>No transactions this month</div>
+                      ) : (
+                        expandedTxns.map(tx => {
+                          const merchant = tx.merchants?.display_name || tx.upi_merchant_raw || tx.raw_description?.slice(0, 32)
+                          const subcat   = tx.categories?.name || '—'
+                          return (
+                            <div key={tx.id} style={s.txRow}>
+                              <div style={s.txLeft}>
+                                <div style={s.txMerchant}>{merchant}</div>
+                                <div style={s.txMeta}>{tx.txn_date} · {subcat}</div>
+                              </div>
+                              <div style={{ ...s.txAmount, color: 'var(--red)' }}>{fmt(tx.amount)}</div>
+                            </div>
+                          )
+                        })
+                      )}
+                      <div style={s.expandedTotal}>
+                        <span style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>TOTAL</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600 }}>{fmt(b.spent)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -246,7 +277,6 @@ function MTDStat({ label, value, color }) {
   )
 }
 
-// Corpus bar styles (named cs to avoid conflict with s)
 const cs = {
   barRow:   { display: 'flex', alignItems: 'center', gap: '10px' },
   barLabel: { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text2)', width: '50px' },
@@ -284,7 +314,6 @@ const s = {
 
   mtdRow:            { display: 'flex', alignItems: 'center', marginBottom: '16px' },
   divider:           { width: '1px', height: '40px', background: 'var(--border)', flexShrink: 0 },
-  progressSection:   {},
   progressMeta:      { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)', marginBottom: '6px' },
   progressBar:       { height: '4px', background: 'var(--border2)', borderRadius: '2px', overflow: 'hidden' },
   progressFill:      { height: '100%', background: 'var(--amber)', borderRadius: '2px' },
@@ -299,18 +328,31 @@ const s = {
   projDelta:         { fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, marginBottom: '4px' },
   projSub:           { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text3)' },
 
-  budgetList:        { display: 'flex', flexDirection: 'column', gap: '14px' },
-  budgetRow:         { display: 'flex', flexDirection: 'column', gap: '6px' },
+  budgetList:        { display: 'flex', flexDirection: 'column', gap: '4px' },
+  budgetRow:         { width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 10px 10px 10px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', transition: 'background 0.15s', textAlign: 'left' },
+  budgetTop:         { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   budgetLeft:        { display: 'flex', alignItems: 'center', gap: '8px' },
   budgetIcon:        { fontSize: '14px' },
-  budgetCat:         { fontSize: '12px', fontWeight: 700, flex: 1 },
+  budgetCat:         { fontSize: '12px', fontWeight: 700 },
   budgetTag:         { fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.1em', padding: '2px 6px', borderRadius: '4px', border: '1px solid' },
-  budgetRight:       { display: 'flex', alignItems: 'center', gap: '10px' },
-  budgetBarWrap:     { flex: 1, height: '4px', background: 'var(--border2)', borderRadius: '2px', overflow: 'hidden' },
+  drillHint:         { fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--text3)', letterSpacing: '0.08em' },
+  budgetRight:       { display: 'flex', alignItems: 'center', gap: '8px' },
+  budgetBarWrap:     { height: '3px', background: 'var(--border2)', borderRadius: '2px', overflow: 'hidden' },
   budgetBarFill:     { height: '100%', borderRadius: '2px', transition: 'width 0.4s ease' },
   budgetNums:        { fontFamily: 'var(--font-mono)', fontSize: '11px', whiteSpace: 'nowrap' },
-  budgetPct:         { fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 600, width: '36px', textAlign: 'right' },
-  budgetTotal:       { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border2)' },
+  budgetPct:         { fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 600, width: '34px', textAlign: 'right' },
+  chevron:           { fontSize: '12px', transition: 'transform 0.2s', lineHeight: 1 },
+
+  expandedBox:       { margin: '0 4px 8px 4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' },
+  emptyRow:          { padding: '16px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)', textAlign: 'center' },
+  txRow:             { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)' },
+  txLeft:            { display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 },
+  txMerchant:        { fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  txMeta:            { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)' },
+  txAmount:          { fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 500, flexShrink: 0, marginLeft: '12px' },
+  expandedTotal:     { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg3)' },
+
+  budgetTotal:       { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border2)' },
   budgetTotalLabel:  { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text2)', letterSpacing: '0.1em' },
   budgetTotalVal:    { fontFamily: 'var(--font-mono)', fontSize: '16px', fontWeight: 600 },
 }
