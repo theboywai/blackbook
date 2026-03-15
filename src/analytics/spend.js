@@ -1,10 +1,13 @@
 import { SPENDABLE_PARENTS, INCOME_PARENTS } from '@/constants/categories'
 
-/**
- * All analytics functions take a transactions array as input.
- * They are pure functions — no side effects, no DB calls.
- * This makes them trivially testable and Supabase-independent.
- */
+// Resolve the top-level parent name for a transaction's category.
+// If the category has no parent_id, the category itself is the parent (top-level).
+export function resolveParent(tx) {
+  const cat = tx.categories
+  if (!cat) return null
+  if (cat.parent_id === null || cat.parent_id === undefined) return cat.name
+  return cat.parent?.name || null
+}
 
 // ── Filters ───────────────────────────────────────────────────────────────────
 
@@ -20,18 +23,14 @@ export function filterCredits(txns) {
   return txns.filter(tx => tx.direction === 'credit' && !tx.is_internal_transfer)
 }
 
-// Resolve the top-level parent name for a transaction's category.
-// If the category has no parent_id, the category itself is the parent (top-level).
-export function resolveParent(tx) {
-  const cat = tx.categories
-  if (!cat) return null
-  if (cat.parent_id === null || cat.parent_id === undefined) return cat.name  // IS the parent
-  return cat.parent?.name || null  // has a parent — use enriched name
-}
-
-export function filterSpendable(txns) {
+/**
+ * Core spend filter.
+ * @param {boolean} includeOneTime - if false (default), excludes is_one_time transactions
+ */
+export function filterSpendable(txns, { includeOneTime = false } = {}) {
   return txns.filter(tx => {
     if (tx.direction !== 'debit' || tx.is_internal_transfer) return false
+    if (!includeOneTime && tx.is_one_time) return false
     const parent = resolveParent(tx)
     return !parent || SPENDABLE_PARENTS.includes(parent)
   })
@@ -43,26 +42,22 @@ export function totalAmount(txns) {
   return txns.reduce((sum, tx) => sum + Number(tx.amount), 0)
 }
 
-export function totalSpend(txns) {
-  return totalAmount(filterSpendable(txns))
+export function totalSpend(txns, opts) {
+  return totalAmount(filterSpendable(txns, opts))
 }
 
 export function totalIncome(txns) {
   return totalAmount(filterCredits(txns))
 }
 
-export function netFlow(txns) {
-  return totalIncome(txns) - totalSpend(txns)
+export function netFlow(txns, opts) {
+  return totalIncome(txns) - totalSpend(txns, opts)
 }
 
 // ── Group by category ─────────────────────────────────────────────────────────
 
-/**
- * Returns [{ parentName, amount, children: [{ name, amount }] }]
- * sorted by amount descending
- */
-export function spendByParentCategory(txns) {
-  const spendable = filterSpendable(txns)
+export function spendByParentCategory(txns, opts) {
+  const spendable = filterSpendable(txns, opts)
   const parentMap = {}
 
   spendable.forEach(tx => {
@@ -88,20 +83,14 @@ export function spendByParentCategory(txns) {
     .sort((a, b) => b.amount - a.amount)
 }
 
-/**
- * Returns flat array for chart: [{ name, amount }]
- */
-export function spendByCategoryFlat(txns) {
-  return spendByParentCategory(txns).map(({ name, amount }) => ({ name, amount }))
+export function spendByCategoryFlat(txns, opts) {
+  return spendByParentCategory(txns, opts).map(({ name, amount }) => ({ name, amount }))
 }
 
 // ── Daily spend ───────────────────────────────────────────────────────────────
 
-/**
- * Returns [{ date: 'YYYY-MM-DD', amount }] for every day in range
- */
-export function dailySpend(txns) {
-  const spendable = filterSpendable(txns)
+export function dailySpend(txns, opts) {
+  const spendable = filterSpendable(txns, opts)
   const dayMap    = {}
 
   spendable.forEach(tx => {
@@ -113,18 +102,15 @@ export function dailySpend(txns) {
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
-/**
- * Daily average spend
- */
-export function dailyAverage(txns, days) {
-  const spend = totalSpend(txns)
+export function dailyAverage(txns, days, opts) {
+  const spend = totalSpend(txns, opts)
   return days > 0 ? Math.round(spend / days) : 0
 }
 
 // ── Top merchants ─────────────────────────────────────────────────────────────
 
-export function topMerchants(txns, limit = 5) {
-  const spendable = filterSpendable(txns)
+export function topMerchants(txns, limit = 5, opts) {
+  const spendable = filterSpendable(txns, opts)
   const map       = {}
 
   spendable.forEach(tx => {

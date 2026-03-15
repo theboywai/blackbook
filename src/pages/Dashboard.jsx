@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useDashboard } from '@/hooks/useDashboard'
 import { CATEGORY_COLORS } from '@/constants/categories'
@@ -21,7 +22,8 @@ const INFO = {
 }
 
 export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCount }) {
-  const data = useDashboard(txns, budgetMap)
+  const [includeOneTime, setIncludeOneTime] = useState(false)
+  const data = useDashboard(txns, budgetMap, { includeOneTime })
 
   if (loading) return <Loader />
   if (!data)   return <Loader text="NO DATA YET — RUN AN UPLOAD" />
@@ -35,9 +37,12 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
           <div style={s.period}>{data.monthLabel}</div>
           <div style={s.title}>Overview</div>
         </div>
-        {reviewCount > 0 && (
-          <Link to="/review" style={s.reviewBadge}>{reviewCount} TO REVIEW →</Link>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          {reviewCount > 0 && (
+            <Link to="/review" style={s.reviewBadge}>{reviewCount} TO REVIEW →</Link>
+          )}
+          <OneTimeToggle value={includeOneTime} onChange={setIncludeOneTime} />
+        </div>
       </div>
 
       {/* Month KPIs */}
@@ -180,4 +185,20 @@ const s = {
   merchantRank: { fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)', width: '16px' },
   merchantName: { flex: 1, fontSize: '13px', fontWeight: 600 },
   merchantAmt:  { fontFamily: 'var(--font-mono)', fontSize: '12px' },
+}
+
+function OneTimeToggle({ value, onChange }) {
+  return (
+    <div
+      style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer' }}
+      onClick={() => onChange(v => !v)}
+    >
+      <div style={{ width: '26px', height: '14px', borderRadius: '7px', background: value ? 'var(--amber)' : 'var(--border2)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+        <div style={{ position: 'absolute', top: '2px', left: '2px', width: '10px', height: '10px', borderRadius: '50%', background: '#fff', transition: 'transform 0.2s', transform: value ? 'translateX(12px)' : 'translateX(0)' }} />
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: value ? 'var(--amber)' : 'var(--text3)', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+        {value ? 'INCL. ONE-TIME' : 'EXC. ONE-TIME'}
+      </span>
+    </div>
+  )
 }

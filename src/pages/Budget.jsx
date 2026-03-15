@@ -5,17 +5,14 @@ import { budgetProgress, projectedMonthlySpend, safeToSpendToday, monthProgress 
 import { filterByDateRange } from '@/analytics/spend'
 import { getMonthRange } from '@/analytics/trends'
 import { useLastUpload } from '@/hooks/useLastUpload'
-import { CATEGORY_COLORS, CATEGORY_ICONS } from '@/constants/categories'
+import { CATEGORY_ICONS } from '@/constants/categories'
 import Card from '@/components/Card'
 import Loader from '@/components/Loader'
 
 const fmt  = n => '₹' + Math.round(n).toLocaleString('en-IN')
 const sign = n => (n >= 0 ? '+' : '') + fmt(n)
 
-const BANK_COLORS = {
-  KOTAK: '#f5a623',
-  HDFC:  '#5b8dee',
-}
+const BANK_COLORS = { KOTAK: '#f5a623', HDFC: '#5b8dee' }
 
 const INFO = {
   corpus:  'Your total known cash across both accounts — sum of the closing balances from your most recent upload for each account.',
@@ -30,28 +27,28 @@ export default function Budget({ txns = [], loading: txnLoading }) {
   const { budgetMap, loading: budgetLoading }    = useBudgets()
   const { label: syncLabel, urgency }            = useLastUpload()
   const [expandedCat, setExpandedCat]            = useState(null)
+  const [includeOneTime, setIncludeOneTime]      = useState(false)
 
   const loading = txnLoading || corpusLoading || budgetLoading
+  const opts    = { includeOneTime }
 
   const progress   = monthProgress()
-  const budgetRows = Object.keys(budgetMap).length ? budgetProgress(txns, budgetMap) : []
-  const projection = Object.keys(budgetMap).length ? projectedMonthlySpend(txns, budgetMap) : null
-  const safeToday  = Object.keys(budgetMap).length ? safeToSpendToday(txns, budgetMap) : null
+  const budgetRows = Object.keys(budgetMap).length ? budgetProgress(txns, budgetMap, opts) : []
+  const projection = Object.keys(budgetMap).length ? projectedMonthlySpend(txns, budgetMap, opts) : null
+  const safeToday  = Object.keys(budgetMap).length ? safeToSpendToday(txns, budgetMap, opts) : null
 
-  // Transactions for the expanded category, current month
   const expandedTxns = useMemo(() => {
     if (!expandedCat) return []
     const curr      = getMonthRange(0)
     const monthTxns = filterByDateRange(txns, curr.from, curr.to)
     return monthTxns.filter(tx => {
       if (tx.direction !== 'debit' || tx.is_internal_transfer) return false
+      if (!includeOneTime && tx.is_one_time) return false
       const cat    = tx.categories
-      const parent = cat
-        ? (cat.parent_id == null ? cat.name : cat.parent?.name || 'OTHER')
-        : 'OTHER'
+      const parent = cat ? (cat.parent_id == null ? cat.name : cat.parent?.name || 'OTHER') : 'OTHER'
       return parent.toUpperCase() === expandedCat.toUpperCase()
     }).sort((a, b) => b.amount - a.amount)
-  }, [expandedCat, txns])
+  }, [expandedCat, txns, includeOneTime])
 
   const urgencyColor = { ok: 'var(--green)', warning: 'var(--amber)', overdue: 'var(--red)' }
 
@@ -66,11 +63,14 @@ export default function Budget({ txns = [], loading: txnLoading }) {
           <div style={s.period}>{new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' }).toUpperCase()}</div>
           <div style={s.title}>Budget Control</div>
         </div>
-        {syncLabel && (
-          <div style={{ ...s.syncBadge, color: urgencyColor[urgency] || 'var(--text3)' }}>
-            {urgency === 'ok' ? `SYNCED ${syncLabel.toUpperCase()}` : urgency === 'warning' ? 'UPLOAD SOON' : 'UPLOAD NOW'}
-          </div>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          {syncLabel && (
+            <div style={{ ...s.syncBadge, color: urgencyColor[urgency] || 'var(--text3)' }}>
+              {urgency === 'ok' ? `SYNCED ${syncLabel.toUpperCase()}` : urgency === 'warning' ? 'UPLOAD SOON' : 'UPLOAD NOW'}
+            </div>
+          )}
+          <OneTimeToggle value={includeOneTime} onChange={setIncludeOneTime} />
+        </div>
       </div>
 
       {/* Total corpus */}
@@ -120,6 +120,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                   </div>
                   <div style={s.accountBalance}>{hasData ? fmt(s2.closingBalance) : '—'}</div>
                   <div style={s.accountBalanceLabel}>CLOSING BALANCE</div>
+                  <LastSynced upload={s2.lastUpload} />
                   <div style={s.accountStats}>
                     <div style={s.accountStat}>
                       <div style={{ ...s.accountStatVal, color: 'var(--green)' }}>{s2.income > 0 ? fmt(s2.income) : '—'}</div>
@@ -180,19 +181,17 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         </Card>
       )}
 
-      {/* Budget vs actual — expandable rows */}
+      {/* Budget vs actual */}
       {budgetRows.length > 0 && (
         <Card title="BUDGET VS ACTUAL" info={INFO.budget}>
           <div style={s.budgetList}>
             {budgetRows.map(b => {
-              const color    = b.status === 'over' ? 'var(--red)' : b.status === 'warning' ? 'var(--amber)' : 'var(--green)'
-              const icon     = CATEGORY_ICONS[b.category] || '•'
-              const isOpen   = expandedCat === b.category
-              const isOther  = b.category === 'OTHER'
+              const color   = b.status === 'over' ? 'var(--red)' : b.status === 'warning' ? 'var(--amber)' : 'var(--green)'
+              const icon    = CATEGORY_ICONS[b.category] || '•'
+              const isOpen  = expandedCat === b.category
 
               return (
                 <div key={b.category}>
-                  {/* Row header — always clickable */}
                   <button
                     style={{ ...s.budgetRow, background: isOpen ? 'var(--bg3)' : 'transparent' }}
                     onClick={() => setExpandedCat(isOpen ? null : b.category)}
@@ -205,9 +204,6 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                           <span style={{ ...s.budgetTag, color, borderColor: color + '44', background: color + '11' }}>
                             {b.status === 'over' ? 'OVER' : 'WARN'}
                           </span>
-                        )}
-                        {isOther && (
-                          <span style={s.drillHint}>tap to see</span>
                         )}
                       </div>
                       <div style={s.budgetRight}>
@@ -223,7 +219,6 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                     </div>
                   </button>
 
-                  {/* Expanded transaction list */}
                   {isOpen && (
                     <div style={s.expandedBox}>
                       {expandedTxns.length === 0 ? (
@@ -235,10 +230,13 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                           return (
                             <div key={tx.id} style={s.txRow}>
                               <div style={s.txLeft}>
-                                <div style={s.txMerchant}>{merchant}</div>
+                                <div style={s.txMerchant}>
+                                  {merchant}
+                                  {tx.is_one_time && <span style={s.oneTimeBadge}>1×</span>}
+                                </div>
                                 <div style={s.txMeta}>{tx.txn_date} · {subcat}</div>
                               </div>
-                              <div style={{ ...s.txAmount, color: 'var(--red)' }}>{fmt(tx.amount)}</div>
+                              <div style={{ ...s.txAmount, color: tx.is_one_time ? 'var(--text3)' : 'var(--red)' }}>{fmt(tx.amount)}</div>
                             </div>
                           )
                         })
@@ -256,9 +254,9 @@ export default function Budget({ txns = [], loading: txnLoading }) {
 
           <div style={s.budgetTotal}>
             <span style={s.budgetTotalLabel}>TOTAL BUDGET REMAINING</span>
-            <span style={{ ...s.budgetTotalVal, color: budgetRows.reduce((s, b) => s + b.remaining, 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
-              {fmt(Math.abs(budgetRows.reduce((s, b) => s + b.remaining, 0)))}
-              {budgetRows.reduce((s, b) => s + b.remaining, 0) < 0 ? ' over' : ' left'}
+            <span style={{ ...s.budgetTotalVal, color: budgetRows.reduce((sum, b) => sum + b.remaining, 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+              {fmt(Math.abs(budgetRows.reduce((sum, b) => sum + b.remaining, 0)))}
+              {budgetRows.reduce((sum, b) => sum + b.remaining, 0) < 0 ? ' over' : ' left'}
             </span>
           </div>
         </Card>
@@ -277,6 +275,73 @@ function MTDStat({ label, value, color }) {
   )
 }
 
+function OneTimeToggle({ value, onChange }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer' }} onClick={() => onChange(v => !v)}>
+      <div style={{ width: '26px', height: '14px', borderRadius: '7px', background: value ? 'var(--amber)' : 'var(--border2)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+        <div style={{ position: 'absolute', top: '2px', left: '2px', width: '10px', height: '10px', borderRadius: '50%', background: '#fff', transition: 'transform 0.2s', transform: value ? 'translateX(12px)' : 'translateX(0)' }} />
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: value ? 'var(--amber)' : 'var(--text3)', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+        {value ? 'INCL. ONE-TIME' : 'EXC. ONE-TIME'}
+      </span>
+    </div>
+  )
+}
+
+function LastSynced({ upload }) {
+  const [open, setOpen] = useState(false)
+
+  if (!upload) return (
+    <div style={ls.wrap}>
+      <span style={{ ...ls.badge, color: 'var(--text3)', borderColor: 'var(--border)' }}>NEVER SYNCED</span>
+    </div>
+  )
+
+  const uploadedAt = new Date(upload.uploaded_at)
+  const now        = new Date()
+  const diffDays   = Math.floor((now - uploadedAt) / 86400000)
+  const diffHours  = Math.floor((now - uploadedAt) / 3600000)
+
+  const ageLabel = diffHours < 1   ? 'just now'
+                 : diffHours < 24  ? `${diffHours}h ago`
+                 : diffDays === 1  ? 'yesterday'
+                 : `${diffDays}d ago`
+
+  const color = diffDays < 3 ? 'var(--green)' : diffDays < 7 ? 'var(--amber)' : 'var(--red)'
+
+  const fullDate    = uploadedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  const fullTime    = uploadedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  const periodLabel = upload.period_end
+    ? `Data through ${new Date(upload.period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+    : null
+
+  return (
+    <div style={ls.wrap}>
+      <button
+        style={{ ...ls.badge, color, borderColor: color + '44', background: color + '0d' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        ● SYNCED {ageLabel.toUpperCase()}
+      </button>
+      {open && (
+        <div style={ls.tooltip}>
+          <div style={ls.ttRow}><span style={ls.ttLabel}>UPLOADED</span><span style={ls.ttVal}>{fullDate} {fullTime}</span></div>
+          {periodLabel && <div style={ls.ttRow}><span style={ls.ttLabel}>COVERS</span><span style={ls.ttVal}>{periodLabel}</span></div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const ls = {
+  wrap:    { position: 'relative', marginBottom: '16px' },
+  badge:   { background: 'none', border: '1px solid', borderRadius: '4px', fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.1em', padding: '3px 7px', cursor: 'pointer', transition: 'opacity 0.15s' },
+  tooltip: { position: 'absolute', top: '22px', left: 0, zIndex: 200, background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', minWidth: '200px', display: 'flex', flexDirection: 'column', gap: '6px' },
+  ttRow:   { display: 'flex', justifyContent: 'space-between', gap: '12px' },
+  ttLabel: { fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--text3)', letterSpacing: '0.1em' },
+  ttVal:   { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text)' },
+}
+
 const cs = {
   barRow:   { display: 'flex', alignItems: 'center', gap: '10px' },
   barLabel: { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text2)', width: '50px' },
@@ -290,7 +355,7 @@ const s = {
   header:            { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' },
   period:            { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text2)', letterSpacing: '0.12em', marginBottom: '4px' },
   title:             { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em' },
-  syncBadge:         { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', marginTop: '8px' },
+  syncBadge:         { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em' },
 
   corpusRow:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '24px', flexWrap: 'wrap' },
   corpusLabel:       { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.14em', color: 'var(--text2)', marginBottom: '8px' },
@@ -329,13 +394,12 @@ const s = {
   projSub:           { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text3)' },
 
   budgetList:        { display: 'flex', flexDirection: 'column', gap: '4px' },
-  budgetRow:         { width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 10px 10px 10px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', transition: 'background 0.15s', textAlign: 'left' },
+  budgetRow:         { width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', transition: 'background 0.15s', textAlign: 'left' },
   budgetTop:         { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   budgetLeft:        { display: 'flex', alignItems: 'center', gap: '8px' },
   budgetIcon:        { fontSize: '14px' },
   budgetCat:         { fontSize: '12px', fontWeight: 700 },
   budgetTag:         { fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.1em', padding: '2px 6px', borderRadius: '4px', border: '1px solid' },
-  drillHint:         { fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--text3)', letterSpacing: '0.08em' },
   budgetRight:       { display: 'flex', alignItems: 'center', gap: '8px' },
   budgetBarWrap:     { height: '3px', background: 'var(--border2)', borderRadius: '2px', overflow: 'hidden' },
   budgetBarFill:     { height: '100%', borderRadius: '2px', transition: 'width 0.4s ease' },
@@ -347,7 +411,8 @@ const s = {
   emptyRow:          { padding: '16px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)', textAlign: 'center' },
   txRow:             { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)' },
   txLeft:            { display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 },
-  txMerchant:        { fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  txMerchant:        { fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' },
+  oneTimeBadge:      { fontFamily: 'var(--font-mono)', fontSize: '8px', fontWeight: 700, color: 'var(--amber)', background: 'var(--amber-bg)', border: '1px solid var(--amber-dim)', borderRadius: '3px', padding: '1px 4px', flexShrink: 0 },
   txMeta:            { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)' },
   txAmount:          { fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 500, flexShrink: 0, marginLeft: '12px' },
   expandedTotal:     { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg3)' },

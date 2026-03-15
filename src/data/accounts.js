@@ -12,6 +12,26 @@ export async function fetchOwnAccounts() {
 }
 
 /**
+ * Returns { accountId: uploaded_at } — most recent upload per account
+ */
+export async function fetchLastUploadPerAccount() {
+  const { data, error } = await supabase
+    .from('uploads')
+    .select('account_id, uploaded_at, period_end')
+    .order('uploaded_at', { ascending: false })
+
+  if (error) return {}
+
+  const map = {}
+  for (const row of (data || [])) {
+    if (!(row.account_id in map)) {
+      map[row.account_id] = { uploaded_at: row.uploaded_at, period_end: row.period_end }
+    }
+  }
+  return map
+}
+
+/**
  * Derive closing balance per account from transactions.
  * Closing balance = balance_after of the most recent transaction per account.
  * The pipeline stores balance_after on every row — no schema change needed.

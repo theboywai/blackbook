@@ -22,16 +22,17 @@ export function txnsByAccount(txns) {
  * For each account, compute this month's spend, income, net
  * Returns [{ account, spent, income, net, closingBalance }]
  */
-export function accountSummaries(txns, accounts, closingBalances) {
+export function accountSummaries(txns, accounts, closingBalances, lastUploads = {}) {
   const curr       = getMonthRange(0)
   const monthTxns  = filterByDateRange(txns, curr.from, curr.to)
   const byAccount  = txnsByAccount(monthTxns)
 
   return accounts.map(acc => {
-    const accTxns  = byAccount[acc.id] || []
-    const spent    = totalSpend(accTxns)
-    const income   = totalIncome(accTxns)
-    const closing  = closingBalances[acc.id] ?? null
+    const accTxns    = byAccount[acc.id] || []
+    const spent      = totalSpend(accTxns)
+    const income     = totalIncome(accTxns)
+    const closing    = closingBalances[acc.id] ?? null
+    const lastUpload = lastUploads[acc.id] ?? null
 
     return {
       account:        acc,
@@ -39,6 +40,7 @@ export function accountSummaries(txns, accounts, closingBalances) {
       income:         Math.round(income),
       net:            Math.round(income - spent),
       closingBalance: closing,
+      lastUpload,      // { uploaded_at, period_end } or null
     }
   })
 }

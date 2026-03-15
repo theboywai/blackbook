@@ -6,42 +6,43 @@ export function monthProgress() {
   const end       = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   const elapsed   = now.getDate()
   const total     = end.getDate()
-  return { elapsed, total, remaining: total - elapsed, percent: Math.round((elapsed / total) * 100) }
+  const remaining = total - elapsed
+  return { elapsed, total, remaining, percent: Math.round((elapsed / total) * 100) }
 }
 
-export function budgetProgress(txns, budgetMap) {
-  const curr   = getMonthRange(0)
-  const bycat  = Object.fromEntries(
-    spendByParentCategory(filterByDateRange(txns, curr.from, curr.to)).map(c => [c.name, c.amount])
+export function budgetProgress(txns, budgetMap, opts = {}) {
+  const curr     = getMonthRange(0)
+  const currTxns = filterByDateRange(txns, curr.from, curr.to)
+  const bycat    = Object.fromEntries(
+    spendByParentCategory(currTxns, opts).map(c => [c.name, c.amount])
   )
+
   return Object.entries(budgetMap).map(([category, budget]) => {
     const spent       = bycat[category] || 0
+    const remaining   = budget - spent
     const percentUsed = budget > 0 ? Math.round((spent / budget) * 100) : 0
-    return {
-      category,
-      spent:       Math.round(spent),
-      budget,
-      remaining:   Math.round(budget - spent),
-      percentUsed,
-      status:      percentUsed >= 100 ? 'over' : percentUsed >= 80 ? 'warning' : 'ok',
-    }
+    const status      = percentUsed >= 100 ? 'over' : percentUsed >= 80 ? 'warning' : 'ok'
+    return { category, spent: Math.round(spent), budget, remaining: Math.round(remaining), percentUsed, status }
   }).sort((a, b) => b.percentUsed - a.percentUsed)
 }
 
-export function projectedMonthlySpend(txns, budgetMap) {
+export function projectedMonthlySpend(txns, budgetMap, opts = {}) {
   const { elapsed, total } = monthProgress()
-  const curr        = getMonthRange(0)
-  const spent       = totalSpend(filterByDateRange(txns, curr.from, curr.to))
-  const dailyRate   = elapsed > 0 ? spent / elapsed : 0
-  const projected   = Math.round(dailyRate * total)
+  const curr       = getMonthRange(0)
+  const currTxns   = filterByDateRange(txns, curr.from, curr.to)
+  const spent      = totalSpend(currTxns, opts)
+  const dailyRate  = elapsed > 0 ? spent / elapsed : 0
+  const projected  = Math.round(dailyRate * total)
   const totalBudget = Object.values(budgetMap).reduce((s, b) => s + b, 0)
   return { projected, budget: totalBudget, willExceedBy: projected - totalBudget, dailyRate: Math.round(dailyRate) }
 }
 
-export function safeToSpendToday(txns, budgetMap) {
+export function safeToSpendToday(txns, budgetMap, opts = {}) {
   const { remaining } = monthProgress()
   const curr          = getMonthRange(0)
-  const spent         = totalSpend(filterByDateRange(txns, curr.from, curr.to))
+  const currTxns      = filterByDateRange(txns, curr.from, curr.to)
+  const spent         = totalSpend(currTxns, opts)
   const totalBudget   = Object.values(budgetMap).reduce((s, b) => s + b, 0)
-  return remaining > 0 ? Math.round((totalBudget - spent) / remaining) : 0
+  const budgetLeft    = totalBudget - spent
+  return remaining > 0 ? Math.round(budgetLeft / remaining) : 0
 }

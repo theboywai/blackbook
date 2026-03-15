@@ -4,7 +4,7 @@ export async function fetchTransactions({ from, to } = {}) {
   let query = supabase
     .from('transactions')
     .select(`
-      id, txn_date, amount, direction, is_internal_transfer,
+      id, txn_date, amount, direction, is_internal_transfer, is_one_time,
       raw_description, upi_merchant_raw, upi_note, upi_handle,
       tx_prefix, ref_number, category_id, categorized_by,
       merchant_id, account_id, upload_id, balance_after,
@@ -51,6 +51,24 @@ export async function updateTransactionCategory(txId, categoryId) {
   const { error } = await supabase
     .from('transactions')
     .update({ category_id: categoryId, categorized_by: 'manual' })
+    .eq('id', txId)
+
+  if (error) throw error
+}
+
+export async function updateTransactionLabel(txId, upiMerchantRaw) {
+  const { error } = await supabase
+    .from('transactions')
+    .update({ upi_merchant_raw: upiMerchantRaw })
+    .eq('id', txId)
+
+  if (error) throw error
+}
+
+export async function updateTransactionOneTime(txId, isOneTime) {
+  const { error } = await supabase
+    .from('transactions')
+    .update({ is_one_time: isOneTime })
     .eq('id', txId)
 
   if (error) throw error
