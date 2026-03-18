@@ -278,7 +278,7 @@ module.exports = async function handler(req, res) {
   try {
     // Step 1 — Extract
     send('extract', 'running')
-    const model      = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model      = genAI.getGenerativeModel({ model: 'gemini-flash-latest' })
     const extraction = await model.generateContent([
       { text: EXTRACT_PROMPT },
       { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
