@@ -427,6 +427,11 @@ module.exports = async function handler(req, res) {
         throw txErr
       }
     }
+    // Update account balance to closing balance from this statement
+    await supabase
+    .from('accounts')
+    .update({ balance: extracted.closing_balance })
+    .eq('id', accountId)
  
     send('insert', 'done', { upload_id: upload.id, inserted: txRows.length, skipped, review_needed: reviewCount })
     send('complete', 'done', { inserted: txRows.length, skipped, review_needed: reviewCount, warnings: validation.warnings })

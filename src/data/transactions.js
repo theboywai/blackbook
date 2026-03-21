@@ -109,6 +109,23 @@ export async function createManualTransaction(tx) {
     })
 
   if (error) throw error
+
+  // Adjust account balance by transaction amount
+  const { data: acc } = await supabase
+    .from('accounts')
+    .select('balance')
+    .eq('id', tx.account_id)
+    .single()
+
+  if (acc?.balance != null) {
+    const newBalance = tx.direction === 'credit'
+      ? Number(acc.balance) + tx.amount
+      : Number(acc.balance) - tx.amount
+    await supabase
+      .from('accounts')
+      .update({ balance: Math.round(newBalance * 100) / 100 })
+      .eq('id', tx.account_id)
+  }
 }
 
 export async function deleteTransaction(txId) {

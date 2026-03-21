@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 export async function fetchOwnAccounts() {
   const { data, error } = await supabase
     .from('accounts')
-    .select('id, name, bank, account_no, type, upi_handles, holder_name')
+    .select('id, name, bank, account_no, type, upi_handles, holder_name, balance')
     .eq('is_own', true)
     .order('bank')
 
@@ -72,4 +72,13 @@ export async function createAccount({ name, bank, account_no, type, holder_name 
 
   if (error) throw error
   return data
+}
+
+export async function updateAccountBalance(accountId, balance) {
+  const { error } = await supabase
+    .from('accounts')
+    .update({ balance })
+    .eq('id', accountId)
+
+  if (error) throw error
 }

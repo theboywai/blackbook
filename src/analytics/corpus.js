@@ -22,25 +22,24 @@ export function txnsByAccount(txns) {
  * For each account, compute this month's spend, income, net
  * Returns [{ account, spent, income, net, closingBalance }]
  */
-export function accountSummaries(txns, accounts, closingBalances, lastUploads = {}) {
-  const curr       = getMonthRange(0)
-  const monthTxns  = filterByDateRange(txns, curr.from, curr.to)
-  const byAccount  = txnsByAccount(monthTxns)
+export function accountSummaries(txns, accounts, lastUploads = {}) {
+  const curr      = getMonthRange(0)
+  const monthTxns = filterByDateRange(txns, curr.from, curr.to)
+  const byAccount = txnsByAccount(monthTxns)
 
   return accounts.map(acc => {
     const accTxns    = byAccount[acc.id] || []
     const spent      = totalSpend(accTxns)
     const income     = totalIncome(accTxns)
-    const closing    = closingBalances[acc.id] ?? null
     const lastUpload = lastUploads[acc.id] ?? null
 
     return {
-      account:        acc,
-      spent:          Math.round(spent),
-      income:         Math.round(income),
-      net:            Math.round(income - spent),
-      closingBalance: closing,
-      lastUpload,      // { uploaded_at, period_end } or null
+      account:  acc,
+      spent:    Math.round(spent),
+      income:   Math.round(income),
+      net:      Math.round(income - spent),
+      balance:  acc.balance ?? null,
+      lastUpload,
     }
   })
 }
@@ -48,8 +47,8 @@ export function accountSummaries(txns, accounts, closingBalances, lastUploads = 
 /**
  * Total corpus = sum of all known closing balances
  */
-export function totalCorpus(closingBalances) {
-  return Object.values(closingBalances).reduce((s, b) => s + (b || 0), 0)
+export function totalCorpus(accounts) {
+  return accounts.reduce((s, acc) => s + (Number(acc.balance) || 0), 0)
 }
 
 /**

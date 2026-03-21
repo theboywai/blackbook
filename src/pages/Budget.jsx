@@ -6,6 +6,8 @@ import { filterByDateRange } from '@/analytics/spend'
 import { getMonthRange } from '@/analytics/trends'
 import { useLastUpload } from '@/hooks/useLastUpload'
 import { CATEGORY_ICONS } from '@/constants/categories'
+import { useState as useLocalState } from 'react'
+import { updateAccountBalance } from '@/data/accounts'
 import Card from '@/components/Card'
 import Loader from '@/components/Loader'
 
@@ -23,7 +25,7 @@ const INFO = {
 }
 
 export default function Budget({ txns = [], loading: txnLoading }) {
-  const { data: corpus, loading: corpusLoading } = useCorpus(txns)
+  const { data: corpus, loading: corpusLoading, refresh: refreshCorpus } = useCorpus(txns)
   const { budgetMap, loading: budgetLoading }    = useBudgets()
   const { label: syncLabel, urgency }            = useLastUpload()
   const [expandedCat, setExpandedCat]            = useState(null)
@@ -84,7 +86,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
           {corpus && (
             <div style={s.corpusBars}>
               {corpus.summaries.map(s2 => {
-                const pct  = corpus.corpus > 0 ? Math.round((s2.closingBalance || 0) / corpus.corpus * 100) : 0
+                const pct  = corpus.corpus > 0 ? Math.round((s2.balance || 0) / corpus.corpus * 100) : 0
                 const bank = s2.account.bank?.toUpperCase()
                 return (
                   <div key={s2.account.id} style={cs.barRow}>
@@ -108,7 +110,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
             {corpus.summaries.map(s2 => {
               const bank    = s2.account.bank?.toUpperCase()
               const color   = BANK_COLORS[bank] || 'var(--text3)'
-              const hasData = s2.closingBalance !== null
+              const hasData = s2.balance !== null
               return (
                 <div key={s2.account.id} style={{ ...s.accountCard, borderColor: color + '33' }}>
                   <div style={s.accountHeader}>
@@ -118,8 +120,11 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                       <div style={s.accountNo}>XX{s2.account.account_no}</div>
                     </div>
                   </div>
-                  <div style={s.accountBalance}>{hasData ? fmt(s2.closingBalance) : '—'}</div>
-                  <div style={s.accountBalanceLabel}>CLOSING BALANCE</div>
+                  <EditableBalance
+                    accountId={s2.account.id}
+                    balance={s2.balance}
+                    onSaved={refreshCorpus}
+                  />
                   <LastSynced upload={s2.lastUpload} />
                   <div style={s.accountStats}>
                     <div style={s.accountStat}>
@@ -262,6 +267,77 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         </Card>
       )}
 
+    </div>
+  )
+}
+
+function EditableBalance({ accountId, balance, onSaved }) {
+  const [editing, setEditing]   = useLocalState(false)
+  const [val, setVal]           = useLocalState('')
+  const [saving, setSaving]     = useLocalState(false)
+  const [saveErr, setSaveErr]   = useLocalState(null)
+
+  function startEdit() {
+    setVal(balance != null ? String(balance) : '')
+    setSaveErr(null)
+    setEditing(true)
+  }
+
+  async function save() {
+    const num = parseFloat(val)
+    if (isNaN(num) || val.trim() === '') { setEditing(false); return }
+    setSaving(true)
+    setSaveErr(null)
+    try {
+      await updateAccountBalance(accountId, num)
+      setEditing(false)
+      onSaved?.()
+    } catch (e) {
+      setSaveErr(e.message)
+      setSaving(false)
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter')  { e.preventDefault(); save() }
+    if (e.key === 'Escape') { setEditing(false) }
+  }
+
+  const fmt = n => '₹' + Math.round(n).toLocaleString('en-IN')
+
+  if (editing) return (
+    <div style={{ marginBottom: '2px' }}>
+      <input
+        autoFocus
+        style={{ fontFamily: 'var(--font-mono)', fontSize: '20px', fontWeight: 500, background: 'var(--bg)', border: '1px solid var(--amber)', borderRadius: '4px', padding: '2px 6px', color: 'var(--text)', width: '100%' }}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={handleKeyDown}
+        type="number"
+      />
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--amber)' }}>
+          {saving ? 'SAVING...' : 'ENTER TO SAVE · ESC TO CANCEL'}
+        </div>
+        <button
+          style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--amber)', background: 'none', letterSpacing: '0.08em' }}
+          onClick={save}
+          disabled={saving}
+        >
+          SAVE
+        </button>
+      </div>
+      {saveErr && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--red)', marginTop: '4px' }}>{saveErr}</div>}
+    </div>
+  )
+
+  return (
+    <div style={{ marginBottom: '2px', cursor: 'pointer' }} onClick={startEdit} title="Tap to override balance">
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '22px', fontWeight: 500, marginBottom: '2px' }}>
+        {balance != null ? fmt(balance) : '—'}
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)', marginLeft: '6px' }}>✎</span>
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--text3)', letterSpacing: '0.12em', marginBottom: '16px' }}>BALANCE · TAP TO EDIT</div>
     </div>
   )
 }
