@@ -57,6 +57,8 @@ export async function fetchClosingBalances() {
 }
 
 export async function createAccount({ name, bank, account_no, type, holder_name }) {
+  const { data: { user } } = await supabase.auth.getUser()
+
   const { data, error } = await supabase
     .from('accounts')
     .insert({
@@ -67,6 +69,7 @@ export async function createAccount({ name, bank, account_no, type, holder_name 
       holder_name:  holder_name.toUpperCase(),
       is_own:       true,
       upi_handles:  [],
+      user_id:      user.id,
     })
     .select().single()
 

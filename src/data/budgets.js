@@ -18,10 +18,13 @@ export async function fetchBudgets() {
  * Update a single budget limit
  */
 export async function updateBudget(category, amount) {
+  const { data: { user } } = await supabase.auth.getUser()
+
   const { error } = await supabase
     .from('budgets')
     .update({ amount, updated_at: new Date().toISOString() })
     .eq('category', category)
+    .eq('user_id', user.id)
 
   if (error) throw error
 }
@@ -47,9 +50,13 @@ const DEFAULT_BUDGETS = [
 ]
 
 export async function seedBudgets() {
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const rows = DEFAULT_BUDGETS.map(b => ({ ...b, user_id: user.id }))
+
   const { error } = await supabase
     .from('budgets')
-    .insert(DEFAULT_BUDGETS)
+    .insert(rows)
 
   if (error) throw error
 }
