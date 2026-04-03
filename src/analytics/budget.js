@@ -12,17 +12,23 @@ export function monthProgress() {
 
 export function budgetProgress(txns, budgetMap, opts = {}) {
   const curr     = getMonthRange(0)
+  const prev     = getMonthRange(-1)
   const currTxns = filterByDateRange(txns, curr.from, curr.to)
-  const bycat    = Object.fromEntries(
+  const prevTxns = filterByDateRange(txns, prev.from, prev.to)
+  const bycat     = Object.fromEntries(
     spendByParentCategory(currTxns, opts).map(c => [c.name, c.amount])
+  )
+  const bycatPrev = Object.fromEntries(
+    spendByParentCategory(prevTxns, opts).map(c => [c.name, c.amount])
   )
 
   return Object.entries(budgetMap).map(([category, budget]) => {
     const spent       = bycat[category] || 0
+    const lastMonth   = bycatPrev[category] || 0
     const remaining   = budget - spent
     const percentUsed = budget > 0 ? Math.round((spent / budget) * 100) : 0
     const status      = percentUsed >= 100 ? 'over' : percentUsed >= 80 ? 'warning' : 'ok'
-    return { category, spent: Math.round(spent), budget, remaining: Math.round(remaining), percentUsed, status }
+    return { category, spent: Math.round(spent), lastMonth: Math.round(lastMonth), budget, remaining: Math.round(remaining), percentUsed, status }
   }).sort((a, b) => b.percentUsed - a.percentUsed)
 }
 

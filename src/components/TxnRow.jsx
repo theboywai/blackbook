@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { updateTransactionCategory, updateTransactionLabel, updateTransactionOneTime, deleteTransaction } from '@/data/transactions'
-import { fetchChildCategories } from '@/data/categories'
+import { fetchCategories } from '@/data/categories'
 
 const fmt = n => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -20,7 +20,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
   const catName      = tx.categories?.name || (tx.is_internal_transfer ? 'Self Transfer' : null)
 
   useEffect(() => {
-    if (expanded && cats.length === 0) fetchChildCategories().then(setCats)
+    if (expanded && cats.length === 0) fetchCategories().then(setCats)
   }, [expanded])
 
   useEffect(() => {
@@ -122,7 +122,18 @@ export default function TxnRow({ tx, last, onUpdated }) {
               <label style={s.fieldLabel}>CATEGORY</label>
               <select style={s.select} value={catId} onChange={e => setCatId(e.target.value)}>
                 <option value="">Uncategorized</option>
-                {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {(() => {
+                  const parents = cats.filter(c => !c.parent_id)
+                  const children = cats.filter(c => c.parent_id)
+                  return parents.map(p => (
+                    <optgroup key={p.id} label={p.name}>
+                      <option value={p.id}>{p.name} (general)</option>
+                      {children.filter(ch => ch.parent_id === p.id).map(ch => (
+                        <option key={ch.id} value={ch.id}>{ch.name}</option>
+                      ))}
+                    </optgroup>
+                  ))
+                })()}
               </select>
             </div>
           </div>

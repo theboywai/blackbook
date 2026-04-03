@@ -212,9 +212,16 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                         )}
                       </div>
                       <div style={s.budgetRight}>
-                        <span style={s.budgetNums}>
-                          {fmt(b.spent)}<span style={{ color: 'var(--text3)' }}> / {fmt(b.budget)}</span>
-                        </span>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={s.budgetNums}>
+                            {fmt(b.spent)}<span style={{ color: 'var(--text3)' }}> / {fmt(b.budget)}</span>
+                          </div>
+                          {b.lastMonth > 0 && (
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)' }}>
+                              last mo: {fmt(b.lastMonth)}
+                            </div>
+                          )}
+                        </div>
                         <span style={{ ...s.budgetPct, color }}>{b.percentUsed}%</span>
                         <span style={{ ...s.chevron, color: 'var(--text3)', transform: isOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
                       </div>

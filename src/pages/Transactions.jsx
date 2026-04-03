@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { resolveParent } from '@/analytics/spend'
 import { createManualTransaction } from '@/data/transactions'
 import { fetchOwnAccounts } from '@/data/accounts'
-import { fetchChildCategories } from '@/data/categories'
+import { fetchCategories } from '@/data/categories'
 import Card from '@/components/Card'
 import TxnRow from '@/components/TxnRow'
 import Loader from '@/components/Loader'
@@ -35,7 +35,7 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
       setAccounts(accs)
       if (accs.length === 1) setForm(f => ({ ...f, account_id: accs[0].id }))
     })
-    fetchChildCategories().then(setCats)
+    fetchCategories().then(setCats)
   }, [])
 
   // ── Category groups for filter dropdown ───────────────────────────────────
@@ -226,7 +226,18 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
               <div style={s.fieldLabel}>CATEGORY</div>
               <select style={s.select} value={form.category_id} onChange={e => set('category_id', e.target.value)}>
                 <option value="">Uncategorized</option>
-                {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {(() => {
+                const parents  = cats.filter(c => !c.parent_id)
+                const children = cats.filter(c => c.parent_id)
+                return parents.map(p => (
+                  <optgroup key={p.id} label={p.name}>
+                    <option value={p.id}>{p.name} (general)</option>
+                    {children.filter(ch => ch.parent_id === p.id).map(ch => (
+                      <option key={ch.id} value={ch.id}>{ch.name}</option>
+                    ))}
+                  </optgroup>
+                ))
+              })()}
               </select>
             </div>
 
