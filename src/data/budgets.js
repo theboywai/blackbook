@@ -5,9 +5,12 @@ import { supabase } from '@/lib/supabase'
  * Returns [{ id, category, amount, updated_at }]
  */
 export async function fetchBudgets() {
+  const { data: { user } } = await supabase.auth.getUser()
+
   const { data, error } = await supabase
     .from('budgets')
     .select('id, category, amount, updated_at')
+    .eq('user_id', user.id)   // ← add this
     .order('category')
 
   if (error) throw error
