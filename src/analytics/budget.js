@@ -10,9 +10,9 @@ export function monthProgress() {
   return { elapsed, total, remaining, percent: Math.round((elapsed / total) * 100) }
 }
 
-export function budgetProgress(txns, budgetMap, opts = {}) {
-  const curr     = getMonthRange(0)
-  const prev     = getMonthRange(-1)
+export function budgetProgress(txns, budgetMap, opts = {}, monthOffset = 0) {
+  const curr     = getMonthRange(monthOffset)
+  const prev     = getMonthRange(monthOffset - 1)
   const currTxns = filterByDateRange(txns, curr.from, curr.to)
   const prevTxns = filterByDateRange(txns, prev.from, prev.to)
   const bycat     = Object.fromEntries(

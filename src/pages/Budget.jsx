@@ -24,6 +24,16 @@ const INFO = {
   safe:    'How much you can spend today and still finish the month within budget. Formula: (total budget remaining) ÷ (days left in month).',
 }
 
+// ── Smart default: find offset of most recent transaction ─────────────────────
+function detectBestMonthOffset(txns) {
+  if (!txns || txns.length === 0) return 0
+  const latest = txns.reduce((best, tx) => tx.txn_date > best ? tx.txn_date : best, '0000-00-00')
+  const latestDate = new Date(latest)
+  const now = new Date()
+  const offset = (latestDate.getFullYear() - now.getFullYear()) * 12 + (latestDate.getMonth() - now.getMonth())
+  return Math.max(-5, Math.min(0, offset)) // clamp to -5..0
+}
+
 export default function Budget({ txns = [], loading: txnLoading }) {
   const { data: corpus, loading: corpusLoading, refresh: refreshCorpus } = useCorpus(txns)
   const { budgetMap, loading: budgetLoading }    = useBudgets()
@@ -31,18 +41,37 @@ export default function Budget({ txns = [], loading: txnLoading }) {
   const [expandedCat, setExpandedCat]            = useState(null)
   const [includeOneTime, setIncludeOneTime]      = useState(false)
 
+  // Month selector — offset from current month (0 = current, -1 = last, etc.)
+  const [monthOffset, setMonthOffset] = useState(() => detectBestMonthOffset(txns))
+
+  // Re-detect best month when txns first load
+  const smartOffset = useMemo(() => detectBestMonthOffset(txns), [txns])
+  // Only apply smart default on first real load (when user hasn't manually changed)
+  const [userChangedMonth, setUserChangedMonth] = useState(false)
+  const effectiveOffset = userChangedMonth ? monthOffset : smartOffset
+
+  function changeMonth(delta) {
+    const next = effectiveOffset + delta
+    if (next > 0 || next < -5) return
+    setMonthOffset(next)
+    setUserChangedMonth(true)
+    setExpandedCat(null)
+  }
+
   const loading = txnLoading || corpusLoading || budgetLoading
   const opts    = { includeOneTime }
 
+  const selectedRange = getMonthRange(effectiveOffset)
+  const isCurrentMonth = effectiveOffset === 0
+
   const progress   = monthProgress()
-  const budgetRows = Object.keys(budgetMap).length ? budgetProgress(txns, budgetMap, opts) : []
-  const projection = Object.keys(budgetMap).length ? projectedMonthlySpend(txns, budgetMap, opts) : null
-  const safeToday  = Object.keys(budgetMap).length ? safeToSpendToday(txns, budgetMap, opts) : null
+  const budgetRows = Object.keys(budgetMap).length ? budgetProgress(txns, budgetMap, opts, effectiveOffset) : []
+  const projection = (Object.keys(budgetMap).length && isCurrentMonth) ? projectedMonthlySpend(txns, budgetMap, opts) : null
+  const safeToday  = (Object.keys(budgetMap).length && isCurrentMonth) ? safeToSpendToday(txns, budgetMap, opts) : null
 
   const expandedTxns = useMemo(() => {
     if (!expandedCat) return []
-    const curr      = getMonthRange(0)
-    const monthTxns = filterByDateRange(txns, curr.from, curr.to)
+    const monthTxns = filterByDateRange(txns, selectedRange.from, selectedRange.to)
     return monthTxns.filter(tx => {
       if (tx.direction !== 'debit' || tx.is_internal_transfer) return false
       if (!includeOneTime && tx.is_one_time) return false
@@ -50,7 +79,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
       const parent = cat ? (cat.parent_id == null ? cat.name : cat.parent?.name || 'OTHER') : 'OTHER'
       return parent.toUpperCase() === expandedCat.toUpperCase()
     }).sort((a, b) => b.amount - a.amount)
-  }, [expandedCat, txns, includeOneTime])
+  }, [expandedCat, txns, includeOneTime, selectedRange])
 
   const urgencyColor = { ok: 'var(--green)', warning: 'var(--amber)', overdue: 'var(--red)' }
 
@@ -62,8 +91,16 @@ export default function Budget({ txns = [], loading: txnLoading }) {
       {/* Header */}
       <div style={s.header}>
         <div>
-          <div style={s.period}>{new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' }).toUpperCase()}</div>
-          <div style={s.title}>Budget Control</div>
+          <div style={s.period}>BUDGET CONTROL</div>
+          <div style={s.title}>
+            <MonthSelector
+              label={selectedRange.label}
+              onPrev={() => changeMonth(-1)}
+              onNext={() => changeMonth(1)}
+              canNext={effectiveOffset < 0}
+              canPrev={effectiveOffset > -5}
+            />
+          </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
           {syncLabel && (
@@ -75,95 +112,92 @@ export default function Budget({ txns = [], loading: txnLoading }) {
         </div>
       </div>
 
-      {/* Total corpus */}
-      <Card info={INFO.corpus}>
-        <div style={s.corpusRow}>
-          <div>
-            <div style={s.corpusLabel}>TOTAL CORPUS</div>
-            <div style={s.corpusValue}>{corpus ? fmt(corpus.corpus) : '—'}</div>
-            <div style={s.corpusSub}>cash across all accounts</div>
-          </div>
-          {corpus && (
-            <div style={s.corpusBars}>
-              {corpus.summaries.map(s2 => {
-                const pct  = corpus.corpus > 0 ? Math.round((s2.balance || 0) / corpus.corpus * 100) : 0
-                const bank = s2.account.bank?.toUpperCase()
-                return (
-                  <div key={s2.account.id} style={cs.barRow}>
-                    <span style={cs.barLabel}>{bank}</span>
-                    <div style={cs.barTrack}>
-                      <div style={{ ...cs.barFill, width: `${pct}%`, background: BANK_COLORS[bank] || 'var(--text3)' }} />
-                    </div>
-                    <span style={cs.barPct}>{pct}%</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {/* Per-account breakdown */}
-      {corpus && (
-        <Card title="ACCOUNTS" info={INFO.account}>
-          <div style={s.accountGrid}>
-            {corpus.summaries.map(s2 => {
-              const bank    = s2.account.bank?.toUpperCase()
-              const color   = BANK_COLORS[bank] || 'var(--text3)'
-              const hasData = s2.balance !== null
-              return (
-                <div key={s2.account.id} style={{ ...s.accountCard, borderColor: color + '33' }}>
-                  <div style={s.accountHeader}>
-                    <div style={{ ...s.accountDot, background: color }} />
-                    <div>
-                      <div style={s.accountBank}>{bank}</div>
-                      <div style={s.accountNo}>XX{s2.account.account_no}</div>
-                    </div>
-                  </div>
-                  <EditableBalance
-                    accountId={s2.account.id}
-                    balance={s2.balance}
-                    onSaved={refreshCorpus}
-                  />
-                  <LastSynced upload={s2.lastUpload} />
-                  <div style={s.accountStats}>
-                    <div style={s.accountStat}>
-                      <div style={{ ...s.accountStatVal, color: 'var(--green)' }}>{s2.income > 0 ? fmt(s2.income) : '—'}</div>
-                      <div style={s.accountStatLabel}>INCOME MTD</div>
-                    </div>
-                    <div style={s.accountStat}>
-                      <div style={{ ...s.accountStatVal, color: 'var(--red)' }}>{s2.spent > 0 ? fmt(s2.spent) : '—'}</div>
-                      <div style={s.accountStatLabel}>SPENT MTD</div>
-                    </div>
-                    <div style={s.accountStat}>
-                      <div style={{ ...s.accountStatVal, color: s2.net >= 0 ? 'var(--green)' : 'var(--red)' }}>{sign(s2.net)}</div>
-                      <div style={s.accountStatLabel}>NET MTD</div>
-                    </div>
-                  </div>
-                  {!hasData && <div style={s.noUpload}>No upload yet</div>}
+      {/* Corpus + accounts only shown for current month */}
+      {isCurrentMonth && (
+        <>
+          {/* Total corpus */}
+          <Card info={INFO.corpus}>
+            <div style={s.corpusRow}>
+              <div>
+                <div style={s.corpusLabel}>TOTAL CORPUS</div>
+                <div style={s.corpusValue}>{corpus ? fmt(corpus.corpus) : '—'}</div>
+                <div style={s.corpusSub}>cash across all accounts</div>
+              </div>
+              {corpus && (
+                <div style={s.corpusBars}>
+                  {corpus.summaries.map(s2 => {
+                    const pct  = corpus.corpus > 0 ? Math.round((s2.balance || 0) / corpus.corpus * 100) : 0
+                    const bank = s2.account.bank?.toUpperCase()
+                    return (
+                      <div key={s2.account.id} style={cs.barRow}>
+                        <span style={cs.barLabel}>{bank}</span>
+                        <div style={cs.barTrack}>
+                          <div style={{ ...cs.barFill, width: `${pct}%`, background: BANK_COLORS[bank] || 'var(--text3)' }} />
+                        </div>
+                        <span style={cs.barPct}>{pct}%</span>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
-        </Card>
+              )}
+            </div>
+          </Card>
+
+          {/* Per-account breakdown */}
+          {corpus && (
+            <Card title="ACCOUNTS" info={INFO.account}>
+              <div style={s.accountGrid}>
+                {corpus.summaries.map(s2 => {
+                  const bank    = s2.account.bank?.toUpperCase()
+                  const color   = BANK_COLORS[bank] || 'var(--text3)'
+                  const hasData = s2.balance !== null
+                  return (
+                    <div key={s2.account.id} style={{ ...s.accountCard, borderColor: color + '33' }}>
+                      <div style={s.accountHeader}>
+                        <div style={{ ...s.accountDot, background: color }} />
+                        <div>
+                          <div style={s.accountBank}>{bank}</div>
+                          <div style={s.accountNo}>XX{s2.account.account_no}</div>
+                        </div>
+                      </div>
+                      <EditableBalance
+                        accountId={s2.account.id}
+                        balance={s2.balance}
+                        onSaved={refreshCorpus}
+                      />
+                      <LastSynced upload={s2.lastUpload} />
+                      <div style={s.accountStats}>
+                        <div style={s.accountStat}>
+                          <div style={{ ...s.accountStatVal, color: 'var(--green)' }}>{s2.income > 0 ? fmt(s2.income) : '—'}</div>
+                          <div style={s.accountStatLabel}>INCOME MTD</div>
+                        </div>
+                        <div style={s.accountStat}>
+                          <div style={{ ...s.accountStatVal, color: 'var(--red)' }}>{s2.spent > 0 ? fmt(s2.spent) : '—'}</div>
+                          <div style={s.accountStatLabel}>SPENT MTD</div>
+                        </div>
+                        <div style={s.accountStat}>
+                          <div style={{ ...s.accountStatVal, color: s2.net >= 0 ? 'var(--green)' : 'var(--red)' }}>{sign(s2.net)}</div>
+                          <div style={s.accountStatLabel}>NET MTD</div>
+                        </div>
+                      </div>
+                      {!hasData && <div style={s.noUpload}>No upload yet</div>}
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          )}
+        </>
       )}
 
-      {/* MTD combined */}
+      {/* MTD combined — label changes for past months */}
       {corpus && (
-        <Card title="MONTH TO DATE · ALL ACCOUNTS" info={INFO.mtd}>
-          <div style={s.mtdRow}>
-            <MTDStat label="INCOME" value={fmt(corpus.mtd.income)} color="var(--green)" />
-            <div style={s.divider} />
-            <MTDStat label="SPENT"  value={fmt(corpus.mtd.spent)}  color="var(--red)" />
-            <div style={s.divider} />
-            <MTDStat label="NET"    value={sign(corpus.mtd.net)}   color={corpus.mtd.net >= 0 ? 'var(--green)' : 'var(--red)'} />
-          </div>
-          <div style={s.progressMeta}>Day {progress.elapsed} of {progress.total} · {progress.remaining} days remaining</div>
-          <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${progress.percent}%` }} /></div>
+        <Card title={isCurrentMonth ? 'MONTH TO DATE · ALL ACCOUNTS' : `${selectedRange.label} · ALL ACCOUNTS`} info={INFO.mtd}>
+          <MtdForMonth txns={txns} range={selectedRange} isCurrentMonth={isCurrentMonth} progress={progress} corpus={corpus} />
         </Card>
       )}
 
-      {/* Safe to spend + projection */}
+      {/* Safe to spend + projection — current month only */}
       {safeToday !== null && projection && (
         <Card info={INFO.safe}>
           <div style={s.safeRow}>
@@ -218,7 +252,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                           </div>
                           {b.lastMonth > 0 && (
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)' }}>
-                              last mo: {fmt(b.lastMonth)}
+                              prev mo: {fmt(b.lastMonth)}
                             </div>
                           )}
                         </div>
@@ -234,7 +268,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                   {isOpen && (
                     <div style={s.expandedBox}>
                       {expandedTxns.length === 0 ? (
-                        <div style={s.emptyRow}>No transactions this month</div>
+                        <div style={s.emptyRow}>No transactions this period</div>
                       ) : (
                         expandedTxns.map(tx => {
                           const merchant = tx.merchants?.display_name || tx.upi_merchant_raw || tx.raw_description?.slice(0, 32)
@@ -277,6 +311,63 @@ export default function Budget({ txns = [], loading: txnLoading }) {
     </div>
   )
 }
+
+// ── Month Selector ─────────────────────────────────────────────────────────────
+function MonthSelector({ label, onPrev, onNext, canPrev, canNext }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <button
+        onClick={onPrev}
+        disabled={!canPrev}
+        style={{ ...ms.btn, opacity: canPrev ? 1 : 0.2 }}
+      >‹</button>
+      <span style={ms.label}>{label}</span>
+      <button
+        onClick={onNext}
+        disabled={!canNext}
+        style={{ ...ms.btn, opacity: canNext ? 1 : 0.2 }}
+      >›</button>
+    </div>
+  )
+}
+
+const ms = {
+  btn:   { background: 'none', border: '1px solid var(--border2)', borderRadius: '4px', color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: '14px', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 },
+  label: { fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', minWidth: '200px' },
+}
+
+// ── MTD card that works for any month ─────────────────────────────────────────
+function MtdForMonth({ txns, range, isCurrentMonth, progress, corpus }) {
+
+  const monthTxns = filterByDateRange(txns, range.from, range.to)
+  const income = monthTxns
+    .filter(tx => tx.direction === 'credit' && !tx.is_internal_transfer)
+    .reduce((s, tx) => s + Number(tx.amount), 0)
+  const spent = monthTxns
+    .filter(tx => tx.direction === 'debit' && !tx.is_internal_transfer)
+    .reduce((s, tx) => s + Number(tx.amount), 0)
+  const net = income - spent
+
+  return (
+    <>
+      <div style={s.mtdRow}>
+        <MTDStat label="INCOME" value={fmt(income)} color="var(--green)" />
+        <div style={s.divider} />
+        <MTDStat label="SPENT"  value={fmt(spent)}  color="var(--red)" />
+        <div style={s.divider} />
+        <MTDStat label="NET"    value={sign(net)}   color={net >= 0 ? 'var(--green)' : 'var(--red)'} />
+      </div>
+      {isCurrentMonth && (
+        <>
+          <div style={s.progressMeta}>Day {progress.elapsed} of {progress.total} · {progress.remaining} days remaining</div>
+          <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${progress.percent}%` }} /></div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ── Sub-components (unchanged) ─────────────────────────────────────────────────
 
 function EditableBalance({ accountId, balance, onSaved }) {
   const [editing, setEditing]   = useLocalState(false)
@@ -436,7 +527,7 @@ const cs = {
 const s = {
   page:              { display: 'flex', flexDirection: 'column', gap: '14px' },
   header:            { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' },
-  period:            { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text2)', letterSpacing: '0.12em', marginBottom: '4px' },
+  period:            { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text2)', letterSpacing: '0.12em', marginBottom: '8px' },
   title:             { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em' },
   syncBadge:         { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em' },
 
