@@ -112,8 +112,16 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
       </Card>
 
       {/* Budget progress */}
-      {data.budgets.length > 0 && (
-        <Card title="BUDGET" info={INFO.budget}>
+      {data.hasBudgets && (
+      <Card title="BUDGET" info={INFO.budget}>
+        {!data.hasCurrentMonth ? (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text3)', textAlign: 'center', padding: '16px 0' }}>
+            No uploads for {data.monthLabel} yet
+            <Link to="/budget" style={{ display: 'block', marginTop: '8px', color: 'var(--amber)', fontSize: '10px', letterSpacing: '0.08em' }}>
+              VIEW LAST MONTH →
+            </Link>
+          </div>
+        ) : (
           <div style={s.budgetList}>
             {data.budgets.map(b => (
               <div key={b.category} style={s.budgetRow}>
@@ -130,8 +138,9 @@ export default function Dashboard({ txns = [], budgetMap = {}, loading, reviewCo
               </div>
             ))}
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
+    )}
 
       {/* Insights */}
       {data.insights.length > 0 && (
