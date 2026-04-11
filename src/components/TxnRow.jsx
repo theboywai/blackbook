@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { updateTransactionCategory, updateTransactionLabel, updateTransactionOneTime, deleteTransaction } from '@/data/transactions'
+import { markAsSplit } from '@/data/splits'
 import { fetchCategories } from '@/data/categories'
 
 const fmt = n => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -10,6 +11,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
   const [catId, setCatId]       = useState(tx.category_id || '')
   const [label, setLabel]       = useState(tx.upi_merchant_raw || tx.upi_note || '')
   const [oneTime, setOneTime]   = useState(tx.is_one_time || false)
+  const [isSplit, setIsSplit]   = useState(tx.is_split || false)
   const [saving, setSaving]     = useState(false)
   const [saved, setSaved]       = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -27,7 +29,8 @@ export default function TxnRow({ tx, last, onUpdated }) {
     setCatId(tx.category_id || '')
     setLabel(tx.upi_merchant_raw || tx.upi_note || '')
     setOneTime(tx.is_one_time || false)
-  }, [tx.category_id, tx.upi_merchant_raw, tx.is_one_time])
+    setIsSplit(tx.is_split || false)
+  }, [tx.category_id, tx.upi_merchant_raw, tx.is_one_time, tx.is_split])
 
   async function handleSave() {
     setSaving(true)
@@ -39,6 +42,8 @@ export default function TxnRow({ tx, last, onUpdated }) {
         promises.push(updateTransactionLabel(tx.id, label))
       if (oneTime !== (tx.is_one_time || false))
         promises.push(updateTransactionOneTime(tx.id, oneTime))
+      if (isSplit !== (tx.is_split || false))
+        promises.push(markAsSplit(tx.id, isSplit))
 
       if (promises.length > 0) {
         await Promise.all(promises)
@@ -58,6 +63,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
     setCatId(tx.category_id || '')
     setLabel(tx.upi_merchant_raw || tx.upi_note || '')
     setOneTime(tx.is_one_time || false)
+    setIsSplit(tx.is_split || false)
     setExpanded(false)
   }
 
@@ -77,7 +83,8 @@ export default function TxnRow({ tx, last, onUpdated }) {
   const isDirty =
     String(catId) !== String(tx.category_id || '') ||
     label         !== (tx.upi_merchant_raw || tx.upi_note || '') ||
-    oneTime       !== (tx.is_one_time || false)
+    oneTime       !== (tx.is_one_time || false) ||
+    isSplit       !== (tx.is_split || false)
 
   return (
     <div style={{ borderBottom: last && !expanded ? 'none' : '1px solid var(--border)' }}>
@@ -91,6 +98,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
           <div style={s.labelRow}>
             <span style={s.label}>{displayLabel}</span>
             {tx.is_one_time && <span style={s.oneTimeBadge}>1×</span>}
+            {tx.is_split && <span style={s.splitBadge}>SPLIT</span>}
           </div>
           <div style={s.meta}>
             {tx.txn_date} · {catName
@@ -149,6 +157,17 @@ export default function TxnRow({ tx, last, onUpdated }) {
             </div>
           </div>
 
+          {/* Split toggle */}
+          <div style={s.toggleRow} onClick={() => setIsSplit(o => !o)}>
+            <div style={{ ...s.toggle, background: isSplit ? 'var(--amber)' : 'var(--border2)' }}>
+              <div style={{ ...s.toggleThumb, transform: isSplit ? 'translateX(14px)' : 'translateX(0)' }} />
+            </div>
+            <div>
+              <div style={s.toggleLabel}>Split transaction</div>
+              <div style={s.toggleSub}>Send to Review to define shares and link recoveries</div>
+            </div>
+          </div>
+
           <div style={s.rawDesc}>{tx.raw_description}</div>
 
           <div style={s.actions}>
@@ -181,6 +200,7 @@ const s = {
   labelRow:     { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' },
   label:        { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   oneTimeBadge: { flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 700, color: 'var(--amber)', background: 'var(--amber-bg)', border: '1px solid var(--amber-dim)', borderRadius: '4px', padding: '1px 5px', letterSpacing: '0.05em' },
+  splitBadge:   { flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 700, color: 'var(--green)', background: 'var(--green-bg)', border: '1px solid var(--green)', borderRadius: '4px', padding: '1px 5px', letterSpacing: '0.05em' },
   meta:         { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text2)', letterSpacing: '0.03em' },
   amount:       { fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap' },
   chevron:      { fontSize: '11px', color: 'var(--text3)', transition: 'transform 0.2s', flexShrink: 0 },
@@ -200,6 +220,7 @@ const s = {
 
   rawDesc:      { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)', lineHeight: 1.5, wordBreak: 'break-all' },
   actions:      { display: 'flex', gap: '8px', justifyContent: 'flex-end' },
+  deleteBtn:    { fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 14px', border: '1px solid var(--red)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', transition: 'all 0.15s' },
   cancelBtn:    { background: 'none', color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 14px', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)' },
   saveBtn:      { background: 'var(--amber)', color: '#000', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', padding: '6px 18px', borderRadius: 'var(--radius-sm)', transition: 'opacity 0.15s' },
 }

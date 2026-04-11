@@ -26,6 +26,8 @@ export function filterCredits(txns) {
     // Also exclude manually-added transfers categorised as TRANSFER parent
     const parent = resolveParent(tx)
     if (parent === 'TRANSFER') return false
+    // Exclude recovery credits — they're not real income
+    if (tx.split_type === 'owe') return false
     return true
   })
 }
@@ -39,7 +41,8 @@ export function filterSpendable(txns, { includeOneTime = false } = {}) {
     if (tx.direction !== 'debit' || tx.is_internal_transfer) return false
     if (!includeOneTime && tx.is_one_time) return false
     const parent = resolveParent(tx)
-    return !parent || SPENDABLE_PARENTS.includes(parent)
+    if (parent && !SPENDABLE_PARENTS.includes(parent)) return false
+    return true
   })
 }
 
@@ -49,8 +52,17 @@ export function totalAmount(txns) {
   return txns.reduce((sum, tx) => sum + Number(tx.amount), 0)
 }
 
+/**
+ * For split 'paid' transactions, count only my_share not the full amount.
+ * my_share lives on the linked splits row — passed in via tx.splits?.my_share
+ */
 export function totalSpend(txns, opts) {
-  return totalAmount(filterSpendable(txns, opts))
+  return filterSpendable(txns, opts).reduce((sum, tx) => {
+    if (tx.split_type === 'paid' && tx.splits?.my_share != null) {
+      return sum + Number(tx.splits.my_share)
+    }
+    return sum + Number(tx.amount)
+  }, 0)
 }
 
 export function totalIncome(txns) {
@@ -70,7 +82,10 @@ export function spendByParentCategory(txns, opts) {
   spendable.forEach(tx => {
     const child  = tx.categories?.name || 'Other'
     const parent = resolveParent(tx) || 'OTHER'
-    const amt    = Number(tx.amount)
+    // Use my_share for split transactions
+    const amt    = (tx.split_type === 'paid' && tx.splits?.my_share != null)
+      ? Number(tx.splits.my_share)
+      : Number(tx.amount)
 
     if (!parentMap[parent]) parentMap[parent] = { name: parent, amount: 0, children: {} }
     parentMap[parent].amount += amt
@@ -101,7 +116,10 @@ export function dailySpend(txns, opts) {
   const dayMap    = {}
 
   spendable.forEach(tx => {
-    dayMap[tx.txn_date] = (dayMap[tx.txn_date] || 0) + Number(tx.amount)
+    const amt = (tx.split_type === 'paid' && tx.splits?.my_share != null)
+      ? Number(tx.splits.my_share)
+      : Number(tx.amount)
+    dayMap[tx.txn_date] = (dayMap[tx.txn_date] || 0) + amt
   })
 
   return Object.entries(dayMap)
@@ -122,7 +140,10 @@ export function topMerchants(txns, limit = 5, opts) {
 
   spendable.forEach(tx => {
     const name = tx.merchants?.display_name || tx.upi_merchant_raw || 'Unknown'
-    map[name]  = (map[name] || 0) + Number(tx.amount)
+    const amt  = (tx.split_type === 'paid' && tx.splits?.my_share != null)
+      ? Number(tx.splits.my_share)
+      : Number(tx.amount)
+    map[name]  = (map[name] || 0) + amt
   })
 
   return Object.entries(map)

@@ -8,8 +8,10 @@ export async function fetchTransactions({ from, to } = {}) {
       raw_description, upi_merchant_raw, upi_note, upi_handle,
       tx_prefix, ref_number, category_id, categorized_by,
       merchant_id, account_id, upload_id, balance_after, created_at,
+      is_split, split_type, split_id,
       categories ( id, name, parent_id ),
-      merchants ( id, display_name )
+      merchants ( id, display_name ),
+      splits!fk_split ( my_share )
     `)
     .order('txn_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -137,3 +139,19 @@ export async function deleteTransaction(txId) {
 
   if (error) throw error
 }
+
+export async function fetchSplitFlagged() {
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(`
+      id, txn_date, amount, direction,
+      raw_description, upi_merchant_raw, upi_note, upi_handle,
+      tx_prefix, split_type, split_id, is_split
+    `)
+    .eq('is_split', true)
+    .order('txn_date', { ascending: false })
+ 
+  if (error) throw error
+  return data || []
+}
+ 
