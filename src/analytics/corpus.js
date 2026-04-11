@@ -75,29 +75,33 @@ export function corpusTimeline(txns) {
   // All txns in the array are already own-account — just need balance_after
   const relevant = txns
     .filter(tx => tx.balance_after != null)
-    .sort((a, b) => a.txn_date.localeCompare(b.txn_date))
+    // Sort ascending by date, then by created_at within same date
+    // so the last entry per account per day is the most recent one
+    .sort((a, b) => {
+      const dateCompare = a.txn_date.localeCompare(b.txn_date)
+      if (dateCompare !== 0) return dateCompare
+      // created_at tiebreak — earlier created_at first so later ones overwrite
+      if (a.created_at && b.created_at) return a.created_at.localeCompare(b.created_at)
+      return 0
+    })
 
   if (!relevant.length) return []
 
   // Get all unique dates
   const allDates = [...new Set(relevant.map(tx => tx.txn_date))].sort()
-
-  // For each date, track the last known balance per account
-  const lastBalance = {} // accountId → balance
+  const lastBalance = {} // accountId → balance (last seen for this date)
   const points = []
 
   for (const date of allDates) {
     // Update last known balance for each account on this date
     const dayTxns = relevant.filter(tx => tx.txn_date === date)
+    // Already sorted by created_at within date — last one per account wins
     dayTxns.forEach(tx => {
       lastBalance[tx.account_id] = Number(tx.balance_after)
     })
 
-    // Only plot if we have at least one account's balance
     const total = Object.values(lastBalance).reduce((s, b) => s + b, 0)
-    if (total > 0) {
-      points.push({ date, corpus: Math.round(total) })
-    }
+    if (total > 0) points.push({ date, corpus: Math.round(total) })
   }
 
   return points

@@ -78,10 +78,29 @@ export async function createAccount({ name, bank, account_no, type, holder_name 
 }
 
 export async function updateAccountBalance(accountId, balance) {
+  // 1. Update account.balance
   const { error } = await supabase
     .from('accounts')
     .update({ balance })
     .eq('id', accountId)
 
   if (error) throw error
+
+  // 2. Insert a synthetic transaction so corpusTimeline picks up the correction
+  const today = new Date().toISOString().slice(0, 10)
+  await supabase
+    .from('transactions')
+    .insert({
+      account_id:           accountId,
+      source:               'balance_correction',
+      txn_date:             today,
+      amount:               0,
+      direction:            'credit',
+      balance_after:        balance,
+      raw_description:      'Manual balance correction',
+      is_internal_transfer: true,
+      category_id:          null,
+    })
+  // Intentionally not throwing on this insert error —
+  // the balance update already succeeded, chart fix is best-effort
 }

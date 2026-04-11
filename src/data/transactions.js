@@ -7,11 +7,12 @@ export async function fetchTransactions({ from, to } = {}) {
       id, txn_date, amount, direction, is_internal_transfer, is_one_time,
       raw_description, upi_merchant_raw, upi_note, upi_handle,
       tx_prefix, ref_number, category_id, categorized_by,
-      merchant_id, account_id, upload_id, balance_after,
+      merchant_id, account_id, upload_id, balance_after, created_at,
       categories ( id, name, parent_id ),
       merchants ( id, display_name )
     `)
     .order('txn_date', { ascending: false })
+    .order('created_at', { ascending: false })
 
   if (from) query = query.gte('txn_date', from)
   if (to)   query = query.lte('txn_date', to)
