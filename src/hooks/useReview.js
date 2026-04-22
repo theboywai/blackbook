@@ -1,28 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchUncategorized, fetchSplitFlagged, updateTransactionCategory } from '@/data/transactions'
+import { fetchUncategorized, fetchSplitFlagged, fetchSplitCredits, updateTransactionCategory } from '@/data/transactions'
 import { fetchChildCategories } from '@/data/categories'
-import { fetchOpenSplits } from '@/data/splits'
 
 export function useReview() {
   const [uncategorized, setUncategorized] = useState([])
   const [splitTxns, setSplitTxns]         = useState([])
-  const [openSplits, setOpenSplits]       = useState([])
+  const [splitCredits, setSplitCredits]   = useState([])
   const [categories, setCategories]       = useState([])
   const [loading, setLoading]             = useState(true)
   const [saving, setSaving]               = useState({})
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [uncategorized, splitFlagged, cats, splits] = await Promise.all([
+    const [uncategorized, splitFlagged, credits, cats] = await Promise.all([
       fetchUncategorized(),
       fetchSplitFlagged(),
+      fetchSplitCredits(),
       fetchChildCategories(),
-      fetchOpenSplits(),
     ])
     setUncategorized(uncategorized)
     setSplitTxns(splitFlagged)
+    setSplitCredits(credits)
     setCategories(cats)
-    setOpenSplits(splits)
     setLoading(false)
   }, [])
 
@@ -42,16 +41,20 @@ export function useReview() {
     setSplitTxns(prev => prev.filter(t => t.id !== txId))
   }, [])
 
+  // Full refresh of split-related state (debits + credits)
   const refreshSplits = useCallback(async () => {
-    const [splitFlagged, splits] = await Promise.all([fetchSplitFlagged(), fetchOpenSplits()])
+    const [splitFlagged, credits] = await Promise.all([
+      fetchSplitFlagged(),
+      fetchSplitCredits(),
+    ])
     setSplitTxns(splitFlagged)
-    setOpenSplits(splits)
+    setSplitCredits(credits)
   }, [])
 
   return {
     txns: uncategorized,
     splitTxns,
-    openSplits,
+    splitCredits,
     categories,
     loading,
     saving,

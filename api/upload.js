@@ -426,6 +426,13 @@ module.exports = async function handler(req, res) {
         await supabase.from('uploads').delete().eq('id', upload.id)
         throw txErr
       }
+
+       // ← ADD THIS: auto-flag txns where upi_note contains 'split'
+      await supabase
+        .from('transactions')
+        .update({ is_split: true })
+        .eq('upload_id', upload.id)
+        .ilike('upi_note', '%split%')
     }
     // Update account balance to closing balance from this statement
     await supabase

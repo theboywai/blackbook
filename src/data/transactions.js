@@ -78,7 +78,6 @@ export async function updateTransactionOneTime(txId, isOneTime) {
 }
 
 export async function createManualTransaction(tx) {
-  // Fetch latest balance_after for this account to compute new balance
   const { data: latest } = await supabase
     .from('transactions')
     .select('balance_after')
@@ -113,7 +112,6 @@ export async function createManualTransaction(tx) {
 
   if (error) throw error
 
-  // Adjust account balance by transaction amount
   const { data: acc } = await supabase
     .from('accounts')
     .select('balance')
@@ -140,6 +138,9 @@ export async function deleteTransaction(txId) {
   if (error) throw error
 }
 
+// Debits flagged as split — shown as cards in Review
+// split_type = null  → setup mode (split not created yet)
+// split_type = 'paid' → recover mode (split exists, awaiting recoveries)
 export async function fetchSplitFlagged() {
   const { data, error } = await supabase
     .from('transactions')
@@ -149,9 +150,34 @@ export async function fetchSplitFlagged() {
       tx_prefix, split_type, split_id, is_split
     `)
     .eq('is_split', true)
+    .eq('direction', 'debit')
     .order('txn_date', { ascending: false })
- 
+
   if (error) throw error
   return data || []
 }
- 
+
+// Credits flagged as split — shown as linkable options inside debit SplitCards
+// split_id = null means not yet linked to any split
+export async function fetchSplitCredits() {
+  const { data: accounts, error: accErr } = await supabase
+    .from('accounts')
+    .select('id')
+
+  if (accErr) throw accErr
+  const accountIds = accounts.map(a => a.id)
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(`
+      id, txn_date, amount, direction,
+      raw_description, upi_merchant_raw, upi_note, upi_handle, split_id
+    `)
+    .eq('is_split', true)
+    .eq('direction', 'credit')
+    .in('account_id', accountIds)
+    .order('txn_date', { ascending: false })
+
+  if (error) throw error
+  return data || []
+}
