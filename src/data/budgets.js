@@ -10,7 +10,7 @@ export async function fetchBudgets() {
   const { data, error } = await supabase
     .from('budgets')
     .select('id, category, amount, updated_at')
-    .eq('user_id', user.id)   // ← add this
+    .eq('user_id', user.id)
     .order('category')
 
   if (error) throw error
@@ -41,6 +41,7 @@ export async function fetchBudgetMap() {
   return Object.fromEntries(budgets.map(b => [b.category, b.amount]))
 }
 
+// TRAVEL intentionally excluded — trip spend is is_one_time and judged per-trip
 const DEFAULT_BUDGETS = [
   { category: 'FOOD',          amount: 8000  },
   { category: 'TRANSPORT',     amount: 3000  },
@@ -49,6 +50,7 @@ const DEFAULT_BUDGETS = [
   { category: 'SHOPPING',      amount: 5000  },
   { category: 'SUBSCRIPTIONS', amount: 1500  },
   { category: 'PEOPLE',        amount: 3000  },
+  { category: 'ENTERTAINMENT', amount: 3000  },
   { category: 'OTHER',         amount: 2000  },
 ]
 

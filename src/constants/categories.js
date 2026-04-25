@@ -6,6 +6,8 @@ export const CATEGORY_COLORS = {
   SHOPPING:      '#b05bde',
   SUBSCRIPTIONS: '#5bcdde',
   PEOPLE:        '#de845b',
+  ENTERTAINMENT: '#e84393',
+  TRAVEL:        '#20b2aa',
   INCOME:        '#4caf7d',
   TRANSFER:      '#555555',
   OTHER:         '#444444',
@@ -19,13 +21,17 @@ export const CATEGORY_ICONS = {
   SHOPPING:      '🛍️',
   SUBSCRIPTIONS: '📱',
   PEOPLE:        '👥',
+  ENTERTAINMENT: '🎬',
+  TRAVEL:        '✈️',
   INCOME:        '💰',
   TRANSFER:      '↔️',
   OTHER:         '•',
 }
 
+// TRAVEL excluded — trip spend is tagged is_one_time, judged per-trip not monthly
 export const SPENDABLE_PARENTS = [
-  'FOOD', 'TRANSPORT', 'HOUSING', 'HEALTH', 'SHOPPING', 'SUBSCRIPTIONS', 'PEOPLE', 'OTHER'
+  'FOOD', 'TRANSPORT', 'HOUSING', 'HEALTH',
+  'SHOPPING', 'SUBSCRIPTIONS', 'PEOPLE', 'ENTERTAINMENT', 'OTHER'
 ]
 
 export const INCOME_PARENTS   = ['INCOME']
