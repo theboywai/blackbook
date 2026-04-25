@@ -1,8 +1,6 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const { createClient }       = require('@supabase/supabase-js')
 const { createHash }         = require('crypto')
-const { readFileSync }       = require('fs')
-const { join }               = require('path')
 
 const EXTRACT_PROMPT    = `You are a bank statement parser. Extract every transaction from the attached PDF bank statement into structured JSON.
 
@@ -51,16 +49,31 @@ OUTPUT FORMAT:
 const CATEGORIZE_PROMPT = `You are a personal finance categorizer for an Indian user. Categorize each transaction and extract merchant info.
 
 CATEGORY LIST (use these exact names only):
-FOOD        → "Food Delivery", "Grocery & Daily", "Dining & Cafe"
-TRANSPORT   → "Metro", "Cab", "Auto & Rickshaw"
-HOUSING     → "Rent", "Home Supplies"
-HEALTH      → "Pharmacy", "Fitness"
-SHOPPING    → "Clothing", "Electronics", "General Shopping"
+FOOD          → "Food Delivery", "Grocery & Daily", "Dining & Cafe"
+TRANSPORT     → "Metro", "Cab", "Auto & Rickshaw"
+HOUSING       → "Rent", "Home Supplies"
+HEALTH        → "Pharmacy", "Fitness"
+SHOPPING      → "Clothing", "Electronics", "General Shopping"
 SUBSCRIPTIONS → "Streaming", "SaaS & Apps"
-PEOPLE      → "Split & Settle", "Gift", "Family Support"
-INCOME      → "Salary", "Refund", "Other Income"
-TRANSFER    → "Self Transfer", "Third Party Transfer"
-OTHER       → "Other"
+PEOPLE        → "Split & Settle", "Gift", "Family Support"
+ENTERTAINMENT → "Movies & Events", "Gaming", "Nightlife", "Other Entertainment"
+TRAVEL        → "Flights", "Hotels", "Activities", "Other Travel"
+INCOME        → "Salary", "Refund", "Other Income"
+TRANSFER      → "Self Transfer", "Third Party Transfer"
+OTHER         → "Other"
+
+ENTERTAINMENT vs SUBSCRIPTIONS:
+- Streaming platforms (Netflix, Spotify, YouTube Premium, Apple TV+, Hotstar) → "Streaming" (SUBSCRIPTIONS)
+- One-off movie tickets, concert tickets, event bookings → "Movies & Events" (ENTERTAINMENT)
+- Gaming purchases, in-app purchases, game subscriptions → "Gaming" (ENTERTAINMENT)
+- Bars, clubs, pubs (not restaurants) → "Nightlife" (ENTERTAINMENT)
+
+TRAVEL guidelines:
+- Flight bookings (IndiGo, Air India, SpiceJet, IRCTC air, MakeMyTrip, EaseMyTrip) → "Flights"
+- Hotel/stay bookings (OYO, Zostel, MakeMyTrip hotels, Airbnb) → "Hotels"
+- Trip activities, sightseeing, tours → "Activities"
+- Train bookings (IRCTC), bus bookings → "Other Travel"
+- Daily commute (Metro, Cab, Auto) is TRANSPORT not TRAVEL
 
 KNOWN MERCHANTS (match these exactly when detected):
 - "SWIGGY" in description                          → merchant: "Swiggy",            category: "Food Delivery"
@@ -83,6 +96,20 @@ KNOWN MERCHANTS (match these exactly when detected):
 - "MARKET 99"                                      → merchant: "Market 99",           category: "General Shopping"
 - "aditshrm" or "ADITYA SHARMA"                    → merchant: null,                  category: "Split & Settle"
 - "Mamura"                                         → merchant: "Mamura",              category: "Gift"
+- "BOOKMYSHOW" or "BookMyShow"                     → merchant: "BookMyShow",          category: "Movies & Events"
+- "PAYTM MOVIES" or "PVRINOX" or "PVR" or "INOX"  → merchant: null,                  category: "Movies & Events"
+- "INDIGO" or "IndiGo" or "INTERGLOBE"             → merchant: "IndiGo",              category: "Flights"
+- "AIR INDIA"                                      → merchant: "Air India",           category: "Flights"
+- "SPICEJET"                                       → merchant: "SpiceJet",            category: "Flights"
+- "IRCTC"                                          → merchant: "IRCTC",               category: "Other Travel"
+- "MAKEMYTRIP" or "MMT"                            → merchant: "MakeMyTrip",          category: "Flights"
+- "EASEMYTRIP"                                     → merchant: "EaseMyTrip",          category: "Flights"
+- "OYO" or "ORAVEL"                                → merchant: "OYO",                 category: "Hotels"
+- "AIRBNB"                                         → merchant: "Airbnb",              category: "Hotels"
+- "STEAM" or "VALVE"                               → merchant: "Steam",               category: "Gaming"
+- "NETFLIX"                                        → merchant: "Netflix",             category: "Streaming"
+- "SPOTIFY"                                        → merchant: "Spotify",             category: "Streaming"
+- "HOTSTAR" or "DISNEY"                            → merchant: "Hotstar",             category: "Streaming"
 
 SPECIAL RULES (apply in this order, first match wins):
 1. ZING prefix → category: "Self Transfer", merchant: null
@@ -93,10 +120,11 @@ SPECIAL RULES (apply in this order, first match wins):
 6. UPI note (the part after the last /) starts with "CAB" → category: "Cab", merchant: null
 7. UPI note starts with "AUTO" or "Rick" or "Ric" → category: "Auto & Rickshaw", merchant: null
 8. UPI note starts with "FOOD" → category: "Dining & Cafe", merchant: null (unless known merchant)
-9. UPI to individual name (not a known business), amount < ₹500, no clear note → category: "Auto & Rickshaw"
-10. UPI to individual name, amount ₹500–₹5000, no clear note → category: "Split & Settle"
-11. Large NEFT/IMPS credit (>₹5000), direction credit, early in month → category: "Salary"
-12. direction credit and none of the above matched → category: "Other Income"
+9. UPI note starts with "TRAVEL" or "TRIP" or "FLIGHT" or "HOTEL" → use appropriate Travel subcategory
+10. UPI to individual name (not a known business), amount < ₹500, no clear note → category: "Auto & Rickshaw"
+11. UPI to individual name, amount ₹500–₹5000, no clear note → category: "Split & Settle"
+12. Large NEFT/IMPS credit (>₹5000), direction credit, early in month → category: "Salary"
+13. direction credit and none of the above matched → category: "Other Income"
 
 UPI NOTE EXTRACTION:
 The UPI description format is: UPI/MERCHANT NAME/refno/NOTE
@@ -122,12 +150,12 @@ OUTPUT: Array only — return ONLY valid JSON array, no markdown, no wrapper obj
   }
 ]`
 
-const PARSER_VERSION    = 'gemini-flash-latest-001'
+const PARSER_VERSION = 'gemini-flash-latest-001'
 
 function stripMarkdown(raw) {
   return raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
 }
- 
+
 function extractUPIHandle(desc) {
   if (!desc) return null
   for (const seg of desc.split('/')) {
@@ -135,19 +163,19 @@ function extractUPIHandle(desc) {
   }
   return null
 }
- 
+
 function extractUPIMerchantRaw(desc) {
   if (!desc) return null
   const m = desc.match(/^UPI\/([^/]+)\//)
   return m ? m[1].trim() : null
 }
- 
+
 function extractUPINote(desc) {
   if (!desc || !desc.startsWith('UPI/')) return null
   const parts = desc.split('/')
   return parts[parts.length - 1].trim() || null
 }
- 
+
 function validate(extracted) {
   const errors = [], warnings = []
   const { opening_balance, closing_balance, total_transactions, transactions } = extracted
@@ -188,7 +216,7 @@ function validate(extracted) {
     }
   }
 }
- 
+
 async function parseMultipart(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
@@ -227,54 +255,54 @@ async function parseMultipart(req) {
     req.on('error', reject)
   })
 }
- 
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
- 
+
   const GEMINI_KEY = process.env.GEMINI_API_KEY
   const SUPA_URL   = process.env.SUPABASE_URL
   const SUPA_KEY   = process.env.SUPABASE_SERVICE_KEY
   if (!GEMINI_KEY || !SUPA_URL || !SUPA_KEY)
     return res.status(500).json({ error: 'Missing server env vars' })
- 
+
   // ── Verify JWT ─────────────────────────────────────────────────────────────
   const authHeader = req.headers['authorization'] || ''
   const token      = authHeader.replace('Bearer ', '').trim()
   if (!token) return res.status(401).json({ error: 'Unauthorized' })
- 
+
   const adminClient = createClient(SUPA_URL, SUPA_KEY)
   const { data: { user }, error: authErr } = await adminClient.auth.getUser(token)
   if (authErr || !user) return res.status(401).json({ error: 'Invalid token' })
- 
+
   // User-scoped client — all DB ops go through RLS
   const supabase = createClient(SUPA_URL, SUPA_KEY, {
     global: { headers: { Authorization: `Bearer ${token}` } }
   })
- 
+
   const genAI = new GoogleGenerativeAI(GEMINI_KEY)
- 
+
   let fields, files
   try {
     ;({ fields, files } = await parseMultipart(req))
   } catch (e) {
     return res.status(400).json({ error: 'Failed to parse upload: ' + e.message })
   }
- 
+
   const accountId = fields.account_id
   const pdfBuffer = files.pdf?.buffer
   if (!accountId) return res.status(400).json({ error: 'Missing account_id' })
   if (!pdfBuffer) return res.status(400).json({ error: 'Missing pdf file' })
- 
+
   const fileHash  = createHash('sha256').update(pdfBuffer).digest('hex')
   const pdfBase64 = pdfBuffer.toString('base64')
- 
+
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
- 
+
   const send = (step, status, data = {}) =>
     res.write(`data: ${JSON.stringify({ step, status, ...data })}\n\n`)
- 
+
   try {
     // Step 1 — Extract
     send('extract', 'running')
@@ -291,7 +319,7 @@ module.exports = async function handler(req, res) {
       return res.end()
     }
     send('extract', 'done', { count: extracted.transactions?.length })
- 
+
     // Step 2 — Validate
     send('validate', 'running')
     const validation = validate(extracted)
@@ -300,7 +328,7 @@ module.exports = async function handler(req, res) {
       return res.end()
     }
     send('validate', 'done', { summary: validation.summary, warnings: validation.warnings })
- 
+
     // Step 3 — Categorize
     send('categorize', 'running')
     const catInput = extracted.transactions.map((tx, i) => ({
@@ -324,23 +352,23 @@ module.exports = async function handler(req, res) {
       return res.end()
     }
     send('categorize', 'done', { count: categories.length })
- 
+
     // Step 4 — Insert
     send('insert', 'running')
- 
+
     const { data: existing } = await supabase
       .from('uploads').select('id').eq('file_hash', fileHash).single()
     if (existing) {
       send('insert', 'error', { message: 'Duplicate upload — this PDF has already been processed' })
       return res.end()
     }
- 
+
     const [{ data: dbCats }, { data: dbMerchants }, { data: ownAccounts }] = await Promise.all([
       supabase.from('categories').select('id, name'),
       supabase.from('merchants').select('id, upi_handle, display_name, category_id'),
       supabase.from('accounts').select('upi_handles, holder_name').eq('is_own', true),
     ])
- 
+
     const categoryMap      = Object.fromEntries((dbCats||[]).map(c => [c.name.toLowerCase(), c.id]))
     const merchantByHandle = Object.fromEntries(
       (dbMerchants||[]).filter(m => m.upi_handle).map(m => [m.upi_handle.toLowerCase(), m])
@@ -348,18 +376,18 @@ module.exports = async function handler(req, res) {
     const ownHandles     = new Set((ownAccounts||[]).flatMap(a => a.upi_handles||[]).map(h => h.toLowerCase()))
     const ownHolderNames = new Set((ownAccounts||[]).map(a => a.holder_name).filter(Boolean).map(n => n.toUpperCase()))
     const geminiMap      = Object.fromEntries(categories.map(c => [c.id, c]))
- 
+
     const { data: existingTxns } = await supabase
       .from('transactions')
       .select('txn_date, amount, direction, raw_description')
       .eq('account_id', accountId)
       .gte('txn_date', extracted.statement_period?.from)
       .lte('txn_date', extracted.statement_period?.to)
- 
+
     const existingKeys = new Set(
       (existingTxns||[]).map(t => `${t.txn_date}|${t.amount}|${t.direction}|${t.raw_description}`)
     )
- 
+
     const { data: upload, error: uploadErr } = await supabase
       .from('uploads')
       .insert({
@@ -372,26 +400,26 @@ module.exports = async function handler(req, res) {
       })
       .select().single()
     if (uploadErr) throw uploadErr
- 
+
     let reviewCount = 0, skipped = 0
     const txRows = []
- 
+
     for (let i = 0; i < extracted.transactions.length; i++) {
       const tx       = extracted.transactions[i]
       const dedupKey = `${tx.txn_date}|${tx.amount}|${tx.direction}|${tx.raw_description}`
       if (existingKeys.has(dedupKey)) { skipped++; continue }
- 
+
       const gemCat    = geminiMap[String(i)]
       const upiHandle = extractUPIHandle(tx.raw_description)
       const upiNote   = extractUPINote(tx.raw_description)
- 
+
       const isZing      = tx.tx_prefix === 'ZING'
       const isOwnHandle = !!(upiHandle && ownHandles.has(upiHandle))
       const isNEFTSelf  = (tx.tx_prefix === 'NEFT' || tx.tx_prefix === 'IMPS') &&
                           tx.direction === 'credit' &&
                           [...ownHolderNames].some(n => tx.raw_description.toUpperCase().includes(n))
       const isInternal  = isZing || isOwnHandle || isNEFTSelf
- 
+
       let merchantId = null, categoryId = null, categorizedBy = null
       if (isInternal) {
         categoryId    = categoryMap['self transfer'] || null
@@ -407,7 +435,7 @@ module.exports = async function handler(req, res) {
         }
       }
       if (!categoryId && !isInternal) reviewCount++
- 
+
       txRows.push({
         account_id: accountId, upload_id: upload.id, source: 'pdf',
         txn_date: tx.txn_date, amount: tx.amount, direction: tx.direction,
@@ -419,7 +447,7 @@ module.exports = async function handler(req, res) {
         categorized_by: categorizedBy, is_internal_transfer: isInternal,
       })
     }
- 
+
     if (txRows.length > 0) {
       const { error: txErr } = await supabase.from('transactions').insert(txRows)
       if (txErr) {
@@ -427,25 +455,26 @@ module.exports = async function handler(req, res) {
         throw txErr
       }
 
-       // ← ADD THIS: auto-flag txns where upi_note contains 'split'
+      // Auto-flag txns where upi_note contains 'split'
       await supabase
         .from('transactions')
         .update({ is_split: true })
         .eq('upload_id', upload.id)
         .ilike('upi_note', '%split%')
     }
+
     // Update account balance to closing balance from this statement
     await supabase
-    .from('accounts')
-    .update({ balance: extracted.closing_balance })
-    .eq('id', accountId)
- 
+      .from('accounts')
+      .update({ balance: extracted.closing_balance })
+      .eq('id', accountId)
+
     send('insert', 'done', { upload_id: upload.id, inserted: txRows.length, skipped, review_needed: reviewCount })
     send('complete', 'done', { inserted: txRows.length, skipped, review_needed: reviewCount, warnings: validation.warnings })
- 
+
   } catch (err) {
     send('error', 'error', { message: err.message })
   }
- 
+
   res.end()
 }
