@@ -17,7 +17,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
   const [deleting, setDeleting] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
-  const displayLabel = tx.upi_merchant_raw || tx.upi_note || tx.raw_description?.slice(0, 40) || '—'
+  const displayLabel = (tx.upi_note === "na" ? tx.merchants?.display_name : tx.upi_note) || tx.raw_description?.slice(0, 40) || '—'
   const isCredit     = tx.direction === 'credit'
   const catName      = tx.categories?.name || (tx.is_internal_transfer ? 'Self Transfer' : null)
 
@@ -27,7 +27,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
 
   useEffect(() => {
     setCatId(tx.category_id || '')
-    setLabel(tx.upi_merchant_raw || tx.upi_note || '')
+    setLabel((tx.upi_note === "na" ? tx.merchants?.display_name : tx.upi_note) || tx.upi_merchant_raw || tx.raw_description?.slice(0, 40) || '—')
     setOneTime(tx.is_one_time || false)
     setIsSplit(tx.is_split || false)
   }, [tx.category_id, tx.upi_merchant_raw, tx.is_one_time, tx.is_split])

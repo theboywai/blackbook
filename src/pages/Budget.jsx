@@ -271,7 +271,7 @@ export default function Budget({ txns = [], loading: txnLoading }) {
                         <div style={s.emptyRow}>No transactions this period</div>
                       ) : (
                         expandedTxns.map(tx => {
-                          const merchant = tx.merchants?.display_name || tx.upi_merchant_raw || tx.raw_description?.slice(0, 32)
+                          const merchant = (tx.upi_note === "na" ? tx.merchants?.display_name : tx.upi_note) || tx.upi_merchant_raw || tx.raw_description?.slice(0, 32)
                           const subcat   = tx.categories?.name || '—'
                           return (
                             <div key={tx.id} style={s.txRow}>
