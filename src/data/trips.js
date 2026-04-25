@@ -27,7 +27,6 @@ export async function createTrip({ name, destination, start_date, end_date, budg
 }
 
 export async function updateTrip(tripId, { name, destination, start_date, end_date, budget }) {
-  const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase
     .from('trips')
     .update({ name, destination: destination || null, start_date: start_date || null, end_date: end_date || null, budget: budget || null })
@@ -36,7 +35,6 @@ export async function updateTrip(tripId, { name, destination, start_date, end_da
 }
 
 export async function deleteTrip(tripId) {
-  // Detach all transactions first
   const { error: detachErr } = await supabase
     .from('transactions')
     .update({ trip_id: null, is_one_time: false })
@@ -50,7 +48,6 @@ export async function deleteTrip(tripId) {
   if (error) throw error
 }
 
-// Assign multiple transactions to a trip — auto-sets is_one_time = true
 export async function assignToTrip(txnIds, tripId) {
   const { error } = await supabase
     .from('transactions')
@@ -59,7 +56,6 @@ export async function assignToTrip(txnIds, tripId) {
   if (error) throw error
 }
 
-// Remove multiple transactions from their trip — clears is_one_time
 export async function removeFromTrip(txnIds) {
   const { error } = await supabase
     .from('transactions')
@@ -68,17 +64,35 @@ export async function removeFromTrip(txnIds) {
   if (error) throw error
 }
 
-// Fetch all transactions belonging to a trip
+// Fetch all transactions for a trip.
+// Fetches split my_share separately to avoid ambiguous FK join.
 export async function fetchTripTransactions(tripId) {
   const { data, error } = await supabase
     .from('transactions')
     .select(`
       id, txn_date, amount, direction, raw_description,
-      upi_merchant_raw, upi_note, upi_handle, category_id,
+      upi_merchant_raw, upi_note, upi_handle, split_type, split_id,
       categories ( id, name, parent_id )
     `)
     .eq('trip_id', tripId)
     .order('txn_date', { ascending: false })
   if (error) throw error
-  return data || []
+
+  const txns = data || []
+
+  // For any split debits, fetch my_share from splits table
+  const splitIds = [...new Set(txns.map(t => t.split_id).filter(Boolean))]
+  if (splitIds.length > 0) {
+    const { data: splits } = await supabase
+      .from('splits')
+      .select('id, my_share')
+      .in('id', splitIds)
+    const splitMap = Object.fromEntries((splits || []).map(s => [s.id, s]))
+    return txns.map(t => ({
+      ...t,
+      splits: t.split_id ? splitMap[t.split_id] ?? null : null,
+    }))
+  }
+
+  return txns
 }

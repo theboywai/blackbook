@@ -16,7 +16,7 @@ export default function Travel() {
   const [form, setForm]             = useState(EMPTY_FORM)
   const [saving, setSaving]         = useState(false)
   const [saveErr, setSaveErr]       = useState(null)
-  const [openTrip, setOpenTrip]     = useState(null) // trip id with expanded detail
+  const [openTrip, setOpenTrip]     = useState(null)
 
   function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
 
@@ -55,7 +55,6 @@ export default function Travel() {
         </button>
       </div>
 
-      {/* Create trip form */}
       {showCreate && (
         <Card>
           <div style={s.formTitle}>NEW TRIP</div>
@@ -93,7 +92,6 @@ export default function Travel() {
         </Card>
       )}
 
-      {/* No trips state */}
       {trips.length === 0 && !showCreate && (
         <div style={s.empty}>
           <div style={{ fontSize: '28px' }}>✈️</div>
@@ -102,7 +100,6 @@ export default function Travel() {
         </div>
       )}
 
-      {/* Trip cards */}
       {trips.map(trip => (
         <TripCard
           key={trip.id}
@@ -119,17 +116,17 @@ export default function Travel() {
 
 // ── Trip Card ──────────────────────────────────────────────────────────────────
 function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
-  const [txns, setTxns]       = useState([])
+  const [txns, setTxns]             = useState([])
   const [txnLoading, setTxnLoading] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [form, setForm]       = useState({
+  const [editing, setEditing]       = useState(false)
+  const [form, setForm]             = useState({
     name:        trip.name,
     destination: trip.destination || '',
     start_date:  trip.start_date  || '',
     end_date:    trip.end_date    || '',
     budget:      trip.budget      || '',
   })
-  const [saving, setSaving]   = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -157,19 +154,25 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
     finally { setSaving(false) }
   }
 
-  // Analytics on trip transactions
   const stats = useMemo(() => {
     const debits = txns.filter(t => t.direction === 'debit')
-    const total  = debits.reduce((s, t) => s + Number(t.amount), 0)
 
-    // Spend by parent category
+    // For split transactions, count only my_share.
+    // Use split_type + splits.my_share — works even after resolution
+    // since split_id is preserved on the transaction row.
+    const effectiveAmount = t => {
+      if (t.split_type === 'paid' && t.splits?.my_share != null) {
+        return Number(t.splits.my_share)
+      }
+      return Number(t.amount)
+    }
+
+    const total = debits.reduce((s, t) => s + effectiveAmount(t), 0)
+
     const byParent = {}
     debits.forEach(t => {
-      const parent = t.categories?.parent_id == null
-        ? t.categories?.name
-        : null // need parent name — use category name as fallback
       const key = t.categories?.name || 'Other'
-      byParent[key] = (byParent[key] || 0) + Number(t.amount)
+      byParent[key] = (byParent[key] || 0) + effectiveAmount(t)
     })
 
     const days = trip.start_date && trip.end_date
@@ -179,16 +182,14 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
     return { total, byParent, days, perDay: days ? total / days : null }
   }, [txns, trip])
 
-  const budgetPct = trip.budget ? Math.min(100, (stats.total / Number(trip.budget)) * 100) : null
+  const budgetPct  = trip.budget ? Math.min(100, (stats.total / Number(trip.budget)) * 100) : null
   const overBudget = trip.budget && stats.total > Number(trip.budget)
-
-  const dateLabel = trip.start_date
+  const dateLabel  = trip.start_date
     ? `${trip.start_date}${trip.end_date ? ` → ${trip.end_date}` : ''}`
     : null
 
   return (
     <Card>
-      {/* Trip header — always visible */}
       <div style={s.tripTop} onClick={onToggle}>
         <div style={s.tripLeft}>
           <div style={s.tripName}>✈️ {trip.name}</div>
@@ -203,13 +204,10 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
         </div>
       </div>
 
-      {/* Budget bar */}
       {budgetPct !== null && (
         <div style={{ marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)', letterSpacing: '0.1em' }}>
-              BUDGET
-            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)', letterSpacing: '0.1em' }}>BUDGET</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: overBudget ? 'var(--red)' : 'var(--text2)' }}>
               {fmt(stats.total)} / {fmt(Number(trip.budget))}
             </span>
@@ -220,7 +218,6 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
         </div>
       )}
 
-      {/* Expanded detail */}
       {isOpen && (
         <div style={s.detail}>
           {txnLoading ? (
@@ -231,10 +228,9 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
             </div>
           ) : (
             <>
-              {/* Stats row */}
               <div style={s.statsRow}>
                 <div style={s.statBox}>
-                  <div style={s.statLabel}>TOTAL SPENT</div>
+                  <div style={s.statLabel}>MY SPEND</div>
                   <div style={s.statValue}>{fmt(stats.total)}</div>
                 </div>
                 {stats.perDay && (
@@ -249,7 +245,6 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
                 </div>
               </div>
 
-              {/* Category breakdown */}
               <div style={s.breakdown}>
                 <div style={s.breakdownTitle}>BREAKDOWN</div>
                 {Object.entries(stats.byParent)
@@ -268,20 +263,24 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
                   })}
               </div>
 
-              {/* Transaction list */}
               <div style={s.txnList}>
                 <div style={s.breakdownTitle}>TRANSACTIONS</div>
                 {txns.map(tx => {
-                  const label    = tx.upi_note || tx.upi_merchant_raw || tx.raw_description?.slice(0, 40) || '—'
-                  const isCredit = tx.direction === 'credit'
+                  const label      = tx.upi_note || tx.upi_merchant_raw || tx.raw_description?.slice(0, 40) || '—'
+                  const isCredit   = tx.direction === 'credit'
+                  const isSplit    = tx.split_type === 'paid' && tx.splits?.my_share != null
+                  const dispAmount = isSplit ? Number(tx.splits.my_share) : Number(tx.amount)
                   return (
                     <div key={tx.id} style={s.txnRow}>
                       <div style={s.txnLeft}>
                         <div style={s.txnName}>{label}</div>
-                        <div style={s.txnMeta}>{tx.txn_date} · {tx.categories?.name || 'Uncategorized'}</div>
+                        <div style={s.txnMeta}>
+                          {tx.txn_date} · {tx.categories?.name || 'Uncategorized'}
+                          {isSplit && <span style={s.splitTag}> · SPLIT</span>}
+                        </div>
                       </div>
                       <div style={{ ...s.txnAmt, color: isCredit ? 'var(--green)' : 'var(--text)' }}>
-                        {isCredit ? '+' : '-'}{fmtK(Number(tx.amount))}
+                        {isCredit ? '+' : '-'}{fmtK(dispAmount)}
                       </div>
                     </div>
                   )
@@ -290,7 +289,6 @@ function TripCard({ trip, isOpen, onToggle, onDelete, onUpdated }) {
             </>
           )}
 
-          {/* Edit / Delete */}
           {editing ? (
             <div style={{ ...s.formGrid, marginTop: '16px' }}>
               <div style={s.twoCol}>
@@ -341,7 +339,6 @@ const s = {
   header:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   title:          { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em' },
   addBtn:         { fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.1em', fontWeight: 700, color: 'var(--amber)', background: 'var(--amber-bg)', border: '1px solid var(--amber-dim)', borderRadius: 'var(--radius-sm)', padding: '6px 12px', cursor: 'pointer' },
-
   formTitle:      { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.14em', color: 'var(--text3)', marginBottom: '16px' },
   formGrid:       { display: 'flex', flexDirection: 'column', gap: '14px' },
   field:          { display: 'flex', flexDirection: 'column', gap: '6px' },
@@ -352,30 +349,24 @@ const s = {
   formActions:    { display: 'flex', gap: '8px', justifyContent: 'flex-end' },
   cancelBtn:      { background: 'none', color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '8px 16px', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' },
   saveBtn:        { background: 'var(--amber)', color: '#000', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', padding: '8px 20px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: 'none' },
-
   empty:          { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '60px 0' },
   emptyText:      { fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text2)', letterSpacing: '0.12em' },
   emptyHint:      { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text3)', textAlign: 'center', maxWidth: '260px', lineHeight: 1.6 },
-
   tripTop:        { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', marginBottom: '10px' },
   tripLeft:       { flex: 1 },
   tripName:       { fontSize: '15px', fontWeight: 700, marginBottom: '4px' },
   tripMeta:       { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text3)', marginBottom: '2px' },
   tripRight:      { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' },
   tripTotal:      { fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: 600, color: 'var(--text)' },
-
   budgetTrack:    { height: '4px', background: 'var(--bg3)', borderRadius: '2px', overflow: 'hidden' },
   budgetFill:     { height: '100%', borderRadius: '2px', transition: 'width 0.3s' },
-
   detail:         { borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '16px' },
   txnLoading:     { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text3)', textAlign: 'center', padding: '16px 0' },
   noTxns:         { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text3)', lineHeight: 1.6, textAlign: 'center', padding: '8px 0' },
-
   statsRow:       { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' },
   statBox:        { background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' },
   statLabel:      { fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.1em', color: 'var(--text3)', marginBottom: '4px' },
   statValue:      { fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 700, color: 'var(--text)' },
-
   breakdown:      { display: 'flex', flexDirection: 'column', gap: '8px' },
   breakdownTitle: { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.12em', color: 'var(--text3)' },
   breakRow:       { display: 'flex', alignItems: 'center', gap: '10px' },
@@ -383,14 +374,13 @@ const s = {
   breakBar:       { flex: 1, height: '4px', background: 'var(--bg3)', borderRadius: '2px', overflow: 'hidden' },
   breakFill:      { height: '100%', background: 'var(--amber)', borderRadius: '2px' },
   breakAmt:       { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text2)', width: '48px', textAlign: 'right', flexShrink: 0 },
-
   txnList:        { display: 'flex', flexDirection: 'column', gap: '8px' },
   txnRow:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: '1px solid var(--border)' },
   txnLeft:        { flex: 1, minWidth: 0 },
   txnName:        { fontSize: '13px', fontWeight: 600, marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   txnMeta:        { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)' },
   txnAmt:         { fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 500, flexShrink: 0, marginLeft: '12px' },
-
+  splitTag:       { color: 'var(--amber)', fontWeight: 700 },
   tripActions:    { display: 'flex', gap: '10px' },
   editBtn:        { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', padding: '7px 14px', cursor: 'pointer' },
   deleteBtn:      { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--red)', background: 'var(--red-bg)', border: '1px solid var(--red)', borderRadius: 'var(--radius-sm)', padding: '7px 14px', cursor: 'pointer' },

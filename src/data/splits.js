@@ -44,8 +44,6 @@ export async function createSplit(txId, { description, totalAmount, myShare }) {
     .select().single()
   if (splitErr) throw splitErr
 
-  // Keep is_split = true — card must stay visible in Review
-  // split_type = 'paid' tells the card to render in recover mode
   const { error: txErr } = await supabase
     .from('transactions')
     .update({ split_type: 'paid', split_id: split.id })
@@ -63,20 +61,17 @@ export async function createSplit(txId, { description, totalAmount, myShare }) {
  * Does NOT auto-settle — only resolveManually closes a split.
  */
 export async function linkRecovery(creditTxId, splitId, amount) {
-  // Insert settlement row
   const { error: settleErr } = await supabase
     .from('split_settlements')
     .insert({ split_id: splitId, transaction_id: creditTxId, amount })
   if (settleErr) throw settleErr
 
-  // Tag the credit transaction — keep is_split true so it stays linkable/visible
   const { error: txErr } = await supabase
     .from('transactions')
     .update({ split_type: 'owe', split_id: splitId })
     .eq('id', creditTxId)
   if (txErr) throw txErr
 
-  // Accumulate recovered_amount on the split
   const { data: split, error: fetchErr } = await supabase
     .from('splits')
     .select('recovered_amount')
@@ -94,12 +89,64 @@ export async function linkRecovery(creditTxId, splitId, amount) {
 }
 
 /**
+ * Link a credit transaction to MULTIPLE splits, allocating a specified
+ * portion of its amount to each split. Used when a single payment from
+ * a friend covers multiple open splits.
+ *
+ * allocations = [{ splitId, amount }, ...]
+ * The credit tx gets split_type = 'owe' and split_id = first splitId
+ * (as a primary reference); all settlement rows are written.
+ */
+export async function linkRecoveryToMultipleSplits(creditTxId, allocations) {
+  if (!allocations || allocations.length === 0) return
+
+  // Insert a settlement row for each split
+  const settlementRows = allocations.map(({ splitId, amount }) => ({
+    split_id:       splitId,
+    transaction_id: creditTxId,
+    amount,
+  }))
+  const { error: settleErr } = await supabase
+    .from('split_settlements')
+    .insert(settlementRows)
+  if (settleErr) throw settleErr
+
+  // Tag the credit with the first split as primary reference
+  const { error: txErr } = await supabase
+    .from('transactions')
+    .update({ split_type: 'owe', split_id: allocations[0].splitId })
+    .eq('id', creditTxId)
+  if (txErr) throw txErr
+
+  // Update recovered_amount on each split; auto-resolve if fully covered
+  for (const { splitId, amount } of allocations) {
+    const { data: split, error: fetchErr } = await supabase
+      .from('splits')
+      .select('recovered_amount, expected_recovery, transaction_id')
+      .eq('id', splitId)
+      .single()
+    if (fetchErr) throw fetchErr
+
+    const newRecovered = Number(split.recovered_amount) + Number(amount)
+    const { error: updateErr } = await supabase
+      .from('splits')
+      .update({ recovered_amount: newRecovered })
+      .eq('id', splitId)
+    if (updateErr) throw updateErr
+
+    // Auto-resolve if fully recovered — no shortfall so absorbShortfall is irrelevant
+    if (newRecovered >= Number(split.expected_recovery)) {
+      await resolveManually(splitId, split.transaction_id, { absorbShortfall: false })
+    }
+  }
+}
+
+/**
  * Unlink a credit transaction from a split.
  * Removes the settlement row, resets the credit's split_type/split_id,
  * and subtracts its amount from recovered_amount.
  */
 export async function unlinkRecovery(creditTxId, splitId, amount) {
-  // Remove settlement row for this credit
   const { error: deleteErr } = await supabase
     .from('split_settlements')
     .delete()
@@ -107,14 +154,12 @@ export async function unlinkRecovery(creditTxId, splitId, amount) {
     .eq('transaction_id', creditTxId)
   if (deleteErr) throw deleteErr
 
-  // Reset credit back to unlinked split state
   const { error: txErr } = await supabase
     .from('transactions')
     .update({ split_type: null, split_id: null })
     .eq('id', creditTxId)
   if (txErr) throw txErr
 
-  // Subtract from recovered_amount
   const { data: split, error: fetchErr } = await supabase
     .from('splits')
     .select('recovered_amount')
@@ -132,11 +177,16 @@ export async function unlinkRecovery(creditTxId, splitId, amount) {
 }
 
 /**
- * Manually resolve a split regardless of how much was recovered.
- * Any shortfall is absorbed into my_share (becomes your expense).
- * Closes the split and clears is_split on the debit + all linked credits.
+ * Manually resolve a split.
+ *
+ * absorbShortfall (default true):
+ *   true  → shortfall is added to my_share (original behaviour)
+ *   false → split closes as-is; shortfall is ignored / written off
+ *
+ * Only shows a difference when recovered_amount < expected_recovery.
+ * If fully recovered, both paths are identical.
  */
-export async function resolveManually(splitId, originalTxId) {
+export async function resolveManually(splitId, originalTxId, { absorbShortfall = true } = {}) {
   const { data: split, error: fetchErr } = await supabase
     .from('splits')
     .select('my_share, expected_recovery, recovered_amount')
@@ -145,23 +195,24 @@ export async function resolveManually(splitId, originalTxId) {
   if (fetchErr) throw fetchErr
 
   const shortfall     = Math.max(0, Number(split.expected_recovery) - Number(split.recovered_amount))
-  const adjustedShare = Number(split.my_share) + shortfall
+  const adjustedShare = absorbShortfall
+    ? Number(split.my_share) + shortfall
+    : Number(split.my_share)   // leave my_share unchanged
 
-  // Close the split
   const { error: splitErr } = await supabase
     .from('splits')
     .update({ my_share: adjustedShare, status: 'settled' })
     .eq('id', splitId)
   if (splitErr) throw splitErr
 
-  // Clear is_split on the original debit — removes it from Review
+  // Clear is_split (removes from Review queue) but KEEP split_id intact
+  // so Travel and other pages can still join splits(my_share) after resolution.
   const { error: debitErr } = await supabase
     .from('transactions')
     .update({ is_split: false })
     .eq('id', originalTxId)
   if (debitErr) throw debitErr
 
-  // Clear is_split on all linked credits — removes them from the credit pool
   const { error: creditErr } = await supabase
     .from('transactions')
     .update({ is_split: false })
