@@ -10,15 +10,24 @@ export async function fetchTrips() {
 }
 
 export async function createTrip({ name, destination, start_date, end_date, budget }) {
+  const { data: { user } } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from('trips')
-    .insert({ name, destination: destination || null, start_date: start_date || null, end_date: end_date || null, budget: budget || null })
+    .insert({
+      name,
+      user_id:     user.id,
+      destination: destination || null,
+      start_date:  start_date  || null,
+      end_date:    end_date    || null,
+      budget:      budget      || null,
+    })
     .select().single()
   if (error) throw error
   return data
 }
 
 export async function updateTrip(tripId, { name, destination, start_date, end_date, budget }) {
+  const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase
     .from('trips')
     .update({ name, destination: destination || null, start_date: start_date || null, end_date: end_date || null, budget: budget || null })

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { resolveParent } from '@/analytics/spend'
 import { createManualTransaction } from '@/data/transactions'
 import { fetchOwnAccounts } from '@/data/accounts'
@@ -55,7 +55,7 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
 
   function enterSelectMode(txId) {
     setSelectMode(true)
-    setSelected(new Set([txId]))
+    setSelected(txId ? new Set([txId]) : new Set())
   }
 
   function exitSelectMode() {
@@ -200,7 +200,7 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
       {/* Select mode hint */}
       {selectMode && (
         <div style={s.selectHint}>
-          Tap transactions to select · Long press to deselect all
+          Tap transactions to select · Long press on mobile to start
         </div>
       )}
 
@@ -321,7 +321,16 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
       )}
 
       <Card>
-        <div style={s.count}>{filtered.length} TRANSACTIONS</div>
+        {/* Count row with desktop SELECT button */}
+        <div style={s.countRow}>
+          <span style={s.count}>{filtered.length} TRANSACTIONS</span>
+          {!selectMode && (
+            <button style={s.selectBtn} onClick={() => enterSelectMode(null)}>
+              SELECT
+            </button>
+          )}
+        </div>
+
         {filtered.length === 0
           ? <div style={s.empty}>No transactions match.</div>
           : filtered.map((tx, i) => (
@@ -339,7 +348,7 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
         }
       </Card>
 
-      {/* Floating action bar — appears when transactions are selected */}
+      {/* Floating action bar */}
       {selectMode && selected.size > 0 && (
         <div style={s.floatingBar}>
           {!showTripPicker ? (
@@ -347,10 +356,7 @@ export default function Transactions({ txns = [], loading, onUpdated }) {
               <div style={s.barCount}>
                 <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{selected.size}</span> txn{selected.size > 1 ? 's' : ''} selected
               </div>
-              <button
-                style={s.barBtn}
-                onClick={() => setShowTripPicker(true)}
-              >
+              <button style={s.barBtn} onClick={() => setShowTripPicker(true)}>
                 ✈️ ADD TO TRIP →
               </button>
             </div>
@@ -405,13 +411,16 @@ const s = {
   select:          { background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text)', fontSize: '12px', fontFamily: 'var(--font-mono)', width: '100%' },
   errBox:          { marginTop: '12px', padding: '10px 12px', background: 'var(--red-bg)', border: '1px solid var(--red)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--red)' },
   formActions:     { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '20px' },
-  cancelBtn:       { background: 'none', color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '8px 16px', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)' },
-  saveBtn:         { background: 'var(--amber)', color: '#000', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', padding: '8px 20px', borderRadius: 'var(--radius-sm)', transition: 'opacity 0.15s' },
+  cancelBtn:       { background: 'none', color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '8px 16px', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' },
+  saveBtn:         { background: 'var(--amber)', color: '#000', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', padding: '8px 20px', borderRadius: 'var(--radius-sm)', transition: 'opacity 0.15s', cursor: 'pointer', border: 'none' },
 
   filters:         { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   search:          { flex: 1, minWidth: '140px', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', color: 'var(--text)', fontSize: '13px' },
   sel:             { background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text)', fontSize: '12px', fontFamily: 'var(--font-mono)' },
-  count:           { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.12em', color: 'var(--text3)', marginBottom: '4px' },
+
+  countRow:        { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' },
+  count:           { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.12em', color: 'var(--text3)' },
+  selectBtn:       { fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--text3)', background: 'none', border: '1px solid var(--border2)', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer' },
   empty:           { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text2)', padding: '32px 0', textAlign: 'center' },
 
   // Floating bar
