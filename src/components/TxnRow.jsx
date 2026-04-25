@@ -5,7 +5,7 @@ import { fetchCategories } from '@/data/categories'
 
 const fmt = n => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
-export default function TxnRow({ tx, last, onUpdated }) {
+export default function TxnRow({ tx, last, onUpdated, selectMode, selected, onLongPress, onSelect }) {
   const [expanded, setExpanded] = useState(false)
   const [cats, setCats]         = useState([])
   const [catId, setCatId]       = useState(tx.category_id || '')
@@ -17,7 +17,10 @@ export default function TxnRow({ tx, last, onUpdated }) {
   const [deleting, setDeleting] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
-  const displayLabel = (tx.upi_note === "na" ? tx.merchants?.display_name : tx.upi_note) || tx.raw_description?.slice(0, 40) || '—'
+  // Long press timer ref
+  const longPressTimer = useRef(null)
+
+  const displayLabel = (tx.upi_note === 'na' ? tx.merchants?.display_name : tx.upi_note) || tx.raw_description?.slice(0, 40) || '—'
   const isCredit     = tx.direction === 'credit'
   const catName      = tx.categories?.name || (tx.is_internal_transfer ? 'Self Transfer' : null)
 
@@ -27,10 +30,36 @@ export default function TxnRow({ tx, last, onUpdated }) {
 
   useEffect(() => {
     setCatId(tx.category_id || '')
-    setLabel((tx.upi_note === "na" ? tx.merchants?.display_name : tx.upi_note) || tx.upi_merchant_raw || tx.raw_description?.slice(0, 40) || '—')
+    setLabel((tx.upi_note === 'na' ? tx.merchants?.display_name : tx.upi_note) || tx.upi_merchant_raw || tx.raw_description?.slice(0, 40) || '—')
     setOneTime(tx.is_one_time || false)
     setIsSplit(tx.is_split || false)
   }, [tx.category_id, tx.upi_merchant_raw, tx.is_one_time, tx.is_split])
+
+  // Collapse expanded panel when entering select mode
+  useEffect(() => {
+    if (selectMode) setExpanded(false)
+  }, [selectMode])
+
+  // ── Long press handlers (mobile) ──────────────────────────────────────────
+  function handleTouchStart() {
+    if (selectMode) return
+    longPressTimer.current = setTimeout(() => {
+      onLongPress?.()
+    }, 500)
+  }
+
+  function handleTouchEnd() {
+    clearTimeout(longPressTimer.current)
+  }
+
+  // ── Row click ─────────────────────────────────────────────────────────────
+  function handleRowClick() {
+    if (selectMode) {
+      onSelect?.()
+    } else {
+      setExpanded(o => !o)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -87,18 +116,43 @@ export default function TxnRow({ tx, last, onUpdated }) {
     isSplit       !== (tx.is_split || false)
 
   return (
-    <div style={{ borderBottom: last && !expanded ? 'none' : '1px solid var(--border)' }}>
+    <div style={{
+      borderBottom: last && !expanded ? 'none' : '1px solid var(--border)',
+      borderLeft: selected ? '3px solid var(--amber)' : '3px solid transparent',
+      background: selected ? 'var(--amber-bg)' : 'transparent',
+      transition: 'background 0.15s, border-color 0.15s',
+    }}>
 
       {/* Main row */}
       <div
-        style={{ ...s.row, background: expanded ? 'var(--bg3)' : 'transparent', cursor: 'pointer' }}
-        onClick={() => setExpanded(o => !o)}
+        style={{
+          ...s.row,
+          background: expanded ? 'var(--bg3)' : 'transparent',
+          cursor: 'pointer',
+          paddingLeft: selectMode ? '8px' : '0',
+        }}
+        onClick={handleRowClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchEnd}
       >
+        {/* Checkbox in select mode */}
+        {selectMode && (
+          <div style={{
+            ...s.checkbox,
+            borderColor: selected ? 'var(--amber)' : 'var(--border2)',
+            background: selected ? 'var(--amber)' : 'transparent',
+          }}>
+            {selected && <span style={s.checkmark}>✓</span>}
+          </div>
+        )}
+
         <div style={s.left}>
           <div style={s.labelRow}>
-            <span style={s.label}>{displayLabel}</span>
+            <span style={s.labelText}>{displayLabel}</span>
             {tx.is_one_time && <span style={s.oneTimeBadge}>1×</span>}
             {tx.is_split && <span style={s.splitBadge}>SPLIT</span>}
+            {tx.trip_id && <span style={s.tripBadge}>✈️</span>}
           </div>
           <div style={s.meta}>
             {tx.txn_date} · {catName
@@ -110,11 +164,13 @@ export default function TxnRow({ tx, last, onUpdated }) {
         <div style={{ ...s.amount, color: isCredit ? 'var(--green)' : tx.is_one_time ? 'var(--text2)' : 'var(--text)' }}>
           {isCredit ? '+' : '-'}{fmt(tx.amount)}
         </div>
-        <div style={{ ...s.chevron, transform: expanded ? 'rotate(180deg)' : 'none' }}>▾</div>
+        {!selectMode && (
+          <div style={{ ...s.chevron, transform: expanded ? 'rotate(180deg)' : 'none' }}>▾</div>
+        )}
       </div>
 
-      {/* Edit panel */}
-      {expanded && (
+      {/* Edit panel — hidden in select mode */}
+      {expanded && !selectMode && (
         <div style={s.panel} onClick={e => e.stopPropagation()}>
           <div style={s.panelRow}>
             <div style={s.fieldGroup}>
@@ -131,7 +187,7 @@ export default function TxnRow({ tx, last, onUpdated }) {
               <select style={s.select} value={catId} onChange={e => setCatId(e.target.value)}>
                 <option value="">Uncategorized</option>
                 {(() => {
-                  const parents = cats.filter(c => !c.parent_id)
+                  const parents  = cats.filter(c => !c.parent_id)
                   const children = cats.filter(c => c.parent_id)
                   return parents.map(p => (
                     <optgroup key={p.id} label={p.name}>
@@ -198,12 +254,16 @@ const s = {
   row:          { display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', transition: 'background 0.15s' },
   left:         { flex: 1, minWidth: 0 },
   labelRow:     { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' },
-  label:        { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  labelText:    { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   oneTimeBadge: { flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 700, color: 'var(--amber)', background: 'var(--amber-bg)', border: '1px solid var(--amber-dim)', borderRadius: '4px', padding: '1px 5px', letterSpacing: '0.05em' },
   splitBadge:   { flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 700, color: 'var(--green)', background: 'var(--green-bg)', border: '1px solid var(--green)', borderRadius: '4px', padding: '1px 5px', letterSpacing: '0.05em' },
+  tripBadge:    { flexShrink: 0, fontSize: '10px' },
   meta:         { fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text2)', letterSpacing: '0.03em' },
   amount:       { fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap' },
   chevron:      { fontSize: '11px', color: 'var(--text3)', transition: 'transform 0.2s', flexShrink: 0 },
+
+  checkbox:     { flexShrink: 0, width: '18px', height: '18px', borderRadius: '4px', border: '2px solid', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' },
+  checkmark:    { fontSize: '11px', color: '#000', fontWeight: 700, lineHeight: 1 },
 
   panel:        { background: 'var(--bg2)', borderTop: '1px solid var(--border)', padding: '14px 0', display: 'flex', flexDirection: 'column', gap: '12px' },
   panelRow:     { display: 'flex', gap: '12px', flexWrap: 'wrap' },
@@ -221,6 +281,6 @@ const s = {
   rawDesc:      { fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text3)', lineHeight: 1.5, wordBreak: 'break-all' },
   actions:      { display: 'flex', gap: '8px', justifyContent: 'flex-end' },
   deleteBtn:    { fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 14px', border: '1px solid var(--red)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', transition: 'all 0.15s' },
-  cancelBtn:    { background: 'none', color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 14px', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)' },
-  saveBtn:      { background: 'var(--amber)', color: '#000', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', padding: '6px 18px', borderRadius: 'var(--radius-sm)', transition: 'opacity 0.15s' },
+  cancelBtn:    { background: 'none', color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 14px', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' },
+  saveBtn:      { background: 'var(--amber)', color: '#000', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', padding: '6px 18px', borderRadius: 'var(--radius-sm)', transition: 'opacity 0.15s', cursor: 'pointer', border: 'none' },
 }

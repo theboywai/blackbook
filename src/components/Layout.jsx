@@ -21,6 +21,7 @@ export default function Layout({ onSignOut, reviewCount }) {
     ['/', 'DASHBOARD'],
     ['/transactions', 'TXN'],
     ['/budget', 'BUDGET'],
+    ['/travel', 'TRAVEL'],
     ['/upload', 'UPLOAD'],
     ['/review', 'REVIEW'],
     ['/settings', 'SETTINGS'],

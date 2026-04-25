@@ -14,15 +14,15 @@ import Review      from '@/pages/Review'
 import Settings    from '@/pages/Settings'
 import Budget      from '@/pages/Budget'
 import Upload      from '@/pages/Upload'
+import Travel       from '@/pages/Travel'
 import Loader      from '@/components/Loader'
 
 function AuthenticatedApp({ onSignOut }) {
   const { txns, loading: txnLoading, refresh } = useTransactions()
   const { budgetMap, loading: budgetLoading }   = useBudgets()
   const [reviewCount, setReviewCount]           = useState(0)
-  const [hasAccounts, setHasAccounts]           = useState(null) // null = loading
+  const [hasAccounts, setHasAccounts]           = useState(null)
 
-  // Check if user has any accounts set up
   useEffect(() => {
     fetchOwnAccounts()
       .then(accs => setHasAccounts(accs.length > 0))
@@ -35,13 +35,8 @@ function AuthenticatedApp({ onSignOut }) {
 
   const loading = txnLoading || budgetLoading
 
-  // Still checking accounts
   if (hasAccounts === null) return <Loader />
-
-  // First-run: no accounts yet
-  if (!hasAccounts) {
-    return <Setup onComplete={() => setHasAccounts(true)} />
-  }
+  if (!hasAccounts) return <Setup onComplete={() => setHasAccounts(true)} />
 
   return (
     <Routes>
@@ -51,6 +46,7 @@ function AuthenticatedApp({ onSignOut }) {
         <Route path="/budget"       element={<Budget       txns={txns} loading={loading} />} />
         <Route path="/upload"       element={<Upload       onUploaded={refresh} />} />
         <Route path="/review"       element={<Review       onCategorized={refresh} />} />
+        <Route path="/travel"       element={<Travel />} />
         <Route path="/settings"     element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />
